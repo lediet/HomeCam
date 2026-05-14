@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>HomeCam 监控</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>HomeCam 监控</h1>
+            <nav>
+                <button class="tab-btn active" data-tab="live">实时</button>
+                <button class="tab-btn" data-tab="history">历史</button>
+            </nav>
+        </header>
+
+        <main>
+            <section id="live-tab" class="tab-content active">
+                <div class="video-container">
+                    <img id="live-stream" src="/video" alt="实时画面">
+                    <div id="stream-status" class="status-overlay">连接中...</div>
+                </div>
+                <div class="event-bar" id="event-bar">
+                    <span class="event-icon">&#9679;</span>
+                    <span id="latest-event">等待事件...</span>
+                </div>
+            </section>
+
+            <section id="history-tab" class="tab-content">
+                <div id="video-player" class="video-player hidden">
+                    <video id="playback" controls></video>
+                    <button id="close-player" class="close-btn">&times;</button>
+                </div>
+                <div id="video-list" class="video-list">
+                    <div class="empty-state">暂无历史视频</div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>

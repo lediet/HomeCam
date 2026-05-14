@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">HomeCam</string>
+    <string name="settings_title">设置</string>
+
+    <!-- Status -->
+    <string name="status_running">监控运行中</string>
+    <string name="status_stopped">监控已停止</string>
+    <string name="status_indicator_desc">运行状态指示器</string>
+    <string name="permission_denied">需要授予所有权限才能使用</string>
+
+    <!-- Buttons -->
+    <string name="start_monitoring">启动监控</string>
+    <string name="stop_monitoring">停止监控</string>
+
+    <!-- Events -->
+    <string name="event_motion">人物移动</string>
+    <string name="event_cry">婴儿哭声</string>
+    <string name="event_danger">危险检测</string>
+    <string name="event_unknown">未知事件</string>
+    <string name="latest_event_label">最新事件</string>
+    <string name="no_events">暂无事件</string>
+
+    <!-- Notification -->
+    <string name="notification_channel_name">HomeCam 监控服务</string>
+    <string name="notification_channel_desc">保持监控服务在后台运行</string>
+    <string name="notification_title">HomeCam 监控中</string>
+    <string name="notification_text">监控服务正在运行</string>
+    <string name="notification_event_text">检测到：%1$s</string>
+
+    <!-- Hint -->
+    <string name="hint_background">息屏后监控将继续运行</string>
+
+    <!-- Settings -->
+    <string name="pref_category_video">视频</string>
+    <string name="pref_scale_factor">画面缩放</string>
+    <string name="pref_scale_factor_1x">1X (原画)</string>
+    <string name="pref_scale_factor_075x">0.75X</string>
+    <string name="pref_scale_factor_05x">0.5X</string>
+    <string name="pref_fps">帧率</string>
+    <string name="pref_category_network">网络</string>
+    <string name="pref_web_port">Web 服务端口</string>
+    <string name="pref_category_detection">智能检测</string>
+    <string name="pref_motion_detection">人物移动检测</string>
+    <string name="pref_cry_detection">婴儿哭声检测</string>
+    <string name="pref_cry_detection_summary">需要麦克风权限</string>
+    <string name="pref_danger_detection">宝宝危险检测</string>
+    <string name="pref_danger_detection_summary">检测逻辑与人物移动检测相同</string>
+    <string name="pref_category_recording">录像</string>
+    <string name="pref_save_duration">触发保存时长(前后)</string>
+    <string name="pref_save_duration_summary">前后各 %1$d 秒</string>
+    <string name="pref_max_video_count">最大保存视频数</string>
+    <string name="pref_max_video_count_summary">最多保存 %1$d 个视频</string>
+
+    <!-- Camera -->
+    <string name="camera_select">选择摄像头</string>
+</resources>
