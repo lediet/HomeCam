@@ -16,6 +16,7 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.text.method.ScrollingMovementMethod
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -48,6 +49,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var latestEvent: TextView
     private lateinit var detectionTime: TextView
     private lateinit var recordingSwitch: androidx.appcompat.widget.SwitchCompat
+    private lateinit var eventLog: TextView
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private val eventRefreshRunnable = object : Runnable {
+        override fun run() {
+            if (CameraService.isRunning.get()) {
+                updateUI()
+            }
+            uiHandler.postDelayed(this, 2000)
+        }
+    }
 
     private val requiredPermissions = buildList {
         add(Manifest.permission.CAMERA)
@@ -106,6 +117,8 @@ class MainActivity : AppCompatActivity() {
             latestEvent = findViewById(R.id.latest_event)
             detectionTime = findViewById(R.id.detection_time)
             recordingSwitch = findViewById(R.id.recording_switch)
+            eventLog = findViewById(R.id.event_log)
+            eventLog.movementMethod = ScrollingMovementMethod()
             Log.d(TAG, "findViewById all done")
         } catch (e: Exception) {
             Log.e(TAG, "findViewById FAILED", e)
@@ -137,12 +150,14 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "onResume()")
         super.onResume()
         registerReceiver(stateReceiver, IntentFilter(CameraService.ACTION_STATE_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
+        uiHandler.postDelayed(eventRefreshRunnable, 2000)
         updateUI()
     }
 
     override fun onPause() {
         Log.d(TAG, "onPause()")
         super.onPause()
+        uiHandler.removeCallbacks(eventRefreshRunnable)
         try { unregisterReceiver(stateReceiver) } catch (_: Exception) {}
     }
 
@@ -226,6 +241,8 @@ class MainActivity : AppCompatActivity() {
                 latestEvent.text = getString(R.string.no_events)
             }
 
+            updateEventLog()
+
             val detectMs = CameraService.latestDetectionMs
             if (detectMs > 0 && CameraService.isRunning.get()) {
                 val interval = AppSettings.getDetectionIntervalFrames(this)
@@ -240,6 +257,30 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "updateUI FAILED", e)
         }
+    }
+
+    private fun updateEventLog() {
+        val events: List<CameraService.EventRecord>
+        synchronized(CameraService.eventHistory) {
+            events = CameraService.eventHistory.takeLast(100).reversed().toList()
+        }
+        if (events.isEmpty()) {
+            eventLog.text = getString(R.string.no_events)
+            return
+        }
+        val lines = events.joinToString("\n") { record ->
+            val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
+                .format(java.util.Date(record.time))
+            val label = when (record.type) {
+                "motion" -> getString(R.string.event_motion)
+                "cry" -> getString(R.string.event_cry)
+                "sleep" -> getString(R.string.event_sleep)
+                "wake_up" -> getString(R.string.event_wake_up)
+                else -> record.type
+            }
+            "$time $label"
+        }
+        eventLog.text = lines
     }
 
     private fun checkPermissionsAndStart() {

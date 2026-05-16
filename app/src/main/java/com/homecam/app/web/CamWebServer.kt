@@ -3,13 +3,13 @@ package com.homecam.app.web
 import android.content.Context
 import android.content.Intent
 import com.google.gson.Gson
-import com.homecam.app.HomeCamApp
 import com.homecam.app.service.AppSettings
 import com.homecam.app.service.CameraService
 import com.homecam.app.service.CameraUtils
+import com.homecam.app.HomeCamApp
 import com.homecam.app.service.ServiceManager
-import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.runBlocking
+import fi.iki.elonen.NanoHTTPD
 import java.io.ByteArrayInputStream
 import java.io.FileInputStream
 
@@ -88,15 +88,15 @@ class CamWebServer(
     }
 
     private fun serveEvents(): Response {
-        return try {
-            val app = context.applicationContext as HomeCamApp
-            val events = runBlocking {
-                app.database.videoDao().getRecent(20)
+        val events = synchronized(CameraService.eventHistory) {
+            CameraService.eventHistory.map { record ->
+                mapOf(
+                    "type" to record.type,
+                    "time" to record.time
+                )
             }
-            newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(events))
-        } catch (e: Exception) {
-            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error")
         }
+        return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(events))
     }
 
     private fun serveVideoList(): Response {

@@ -1,8 +1,8 @@
 # HomeCam v1.0 工作记录与技术文档
 
 **最后更新**：2026-05-16  
-**版本**：1.3.1  
-**状态**：v1.3.1 新增 AI 睡眠检测（MediaPipe FaceLandmarker 闭眼识别），UI 文字优化
+**版本**：1.3.2  
+**状态**：v1.3.2 修复事件日志不同步 Bug，新增手机端和 Web 端事件日志显示
 
 ---
 
@@ -1183,4 +1183,22 @@ implementation("androidx.camera:camera-core:$cameraxVersion")
 
 ---
 
-*文档结束 — HomeCam v1.3.1 工作记录*
+
+### v1.3.2 (2026-05-16)
+
+#### 修复
+
+- **手机端事件不更新**：`onEventDetected()` 未发送 `ACTION_STATE_CHANGED` 广播，MainActivity 收不到通知。修复：事件触发后立即发送广播触发 `updateUI()`
+- **`/api/events` 返回空**：接口读取 Room 录像数据库，未录像时无数据。修复：改为从独立内存列表 `CameraService.eventHistory` 返回
+- **事件数据丢失**：`latestEventType/latestEventTime` 受 `recordingEnabled` 守卫，关闭录像时事件不被记录。修复：事件追踪与录像分离，始终记录
+
+#### 变更
+
+- **手机端事件日志**：新增 20 行事件日志窗口（MaterialCardView + TextView），显示最新 100 条事件
+- **Web 端事件日志**：历史视频列表改为显示最新 10 条
+- **`CameraService.eventHistory`**：新增 `EventRecord` 数据类，内存维护事件列表（上限 1000 条）
+- **`/api/events`**：返回所有事件记录（无数量限制）
+
+---
+
+*文档结束 — HomeCam v1.3.2 工作记录*

@@ -3,7 +3,7 @@
 
     const liveStream = document.getElementById('live-stream');
     const streamStatus = document.getElementById('stream-status');
-    const latestEvent = document.getElementById('latest-event');
+    const eventList = document.getElementById('event-list');
     const videoList = document.getElementById('video-list');
     const videoPlayer = document.getElementById('video-player');
     const playback = document.getElementById('playback');
@@ -159,7 +159,6 @@
                 if (data.latest_event) {
                     const time = new Date(data.latest_event_time).toLocaleTimeString('zh-CN');
                     const typeLabel = {motion: '人物移动', cry: '婴儿哭声', sleep: '宝宝睡着了', wake_up: '宝宝睡醒了'}[data.latest_event] || data.latest_event;
-                    latestEvent.textContent = time + ' ' + typeLabel;
                 }
                 // Sync power state from status
                 if (data.camera_powered !== undefined && data.camera_powered !== cameraPowered) {
@@ -178,12 +177,38 @@
     setInterval(updateStatus, 5000);
     updateStatus();
 
+    // Load event log every 5 seconds
+    setInterval(loadEventLog, 5000);
+    loadEventLog();
+
     // Initialize power button
     updatePowerButton();
 
     // Load camera list periodically
     loadCameraList();
     setInterval(loadCameraList, 30000);
+
+    // Load event log (latest 10)
+    function loadEventLog() {
+        fetch('/api/events')
+            .then(r => r.json())
+            .then(events => {
+                if (!events || events.length === 0) {
+                    eventList.innerHTML = '暂无事件';
+                    return;
+                }
+                const last10 = events.slice(-10).reverse();
+                const typeLabel = {motion: '人物移动', cry: '婴儿哭声', sleep: '宝宝睡着了', wake_up: '宝宝睡醒了'};
+                eventList.innerHTML = last10.map(e => {
+                    const time = new Date(e.time).toLocaleTimeString('zh-CN');
+                    const label = typeLabel[e.type] || e.type;
+                    return '<div class="event-item">' + time + ' ' + label + '</div>';
+                }).join('');
+            })
+            .catch(() => {
+                eventList.innerHTML = '加载失败';
+            });
+    }
 
     // Load video list
     function loadVideoList() {
@@ -195,7 +220,7 @@
                     return;
                 }
 
-                videoList.innerHTML = videos.map(v => {
+                videoList.innerHTML = videos.slice(-10).map(v => {
                     const time = new Date(v.timestamp).toLocaleTimeString('zh-CN');
                     const date = new Date(v.timestamp).toLocaleDateString('zh-CN');
                     const icon = {motion: '👤', cry: '🔊', sleep: '💤', wake_up: '😴'}[v.eventType] || '📁';

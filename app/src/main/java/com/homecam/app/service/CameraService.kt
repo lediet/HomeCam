@@ -60,7 +60,15 @@ class CameraService : LifecycleService() {
         var latestDetectionMs: Long = 0L
         @Volatile
         var recordingEnabled: Boolean = true
+
+        // In-memory event history (always recorded, regardless of recordingEnabled)
+        val eventHistory = mutableListOf<EventRecord>()
     }
+
+    data class EventRecord(
+        val type: String,
+        val time: Long
+    )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private lateinit var cameraExecutor: ExecutorService
@@ -697,12 +705,22 @@ class CameraService : LifecycleService() {
 
     private fun onEventDetected(eventType: String) {
         Log.d(TAG, "onEventDetected: $eventType")
+        val now = System.currentTimeMillis()
+
+        // Always update event tracking regardless of recording state
+        latestEventType = eventType
+        latestEventTime = now
+        synchronized(eventHistory) {
+            eventHistory.add(EventRecord(eventType, now))
+            if (eventHistory.size > 1000) eventHistory.removeAt(0)
+        }
+        sendBroadcast(Intent(ACTION_STATE_CHANGED))
+
         if (!recordingEnabled) {
-            Log.d(TAG, "Recording disabled, skipping")
+            Log.d(TAG, "Recording disabled, skipping video")
             return
         }
         val saveDuration = AppSettings.getSaveDurationSec(this)
-        val now = System.currentTimeMillis()
 
         synchronized(postEventFrames) {
             if (isRecordingEvent) return
@@ -711,9 +729,6 @@ class CameraService : LifecycleService() {
             postEventEndTime = now + saveDuration * 1000L
             postEventFrames.clear()
         }
-
-        latestEventType = eventType
-        latestEventTime = now
 
         updateNotification(eventType)
     }
