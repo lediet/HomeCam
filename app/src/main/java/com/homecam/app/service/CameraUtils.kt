@@ -20,7 +20,6 @@ object CameraUtils {
         val manager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager ?: return emptyList()
         val result = mutableListOf<CameraInfo>()
         val processedIds = mutableSetOf<String>()
-        val seenCameras = mutableSetOf<String>()
         try {
             val knownIds = manager.cameraIdList.toMutableSet()
             val originalCameraIds = manager.cameraIdList.toSet()
@@ -56,11 +55,6 @@ object CameraUtils {
                 val focalLengths = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
                 Log.d(TAG, "Camera $id: facing=$facing, focalLengths=${focalLengths?.joinToString()}, lensType=$lensDesc")
 
-                val signature = "$facing:${focalLengths?.joinToString(",")}"
-                if (!seenCameras.add(signature)) {
-                    Log.d(TAG, "Skipping duplicate camera $id (signature=$signature)")
-                    continue
-                }
 
                 val actualLogicalId = if (id in originalCameraIds || facing != CameraCharacteristics.LENS_FACING_BACK) id else logicalRearId
                 val cameraLabel = "摄像头 ${result.size} (${getFacingLabel(facing)}$lensDesc)"

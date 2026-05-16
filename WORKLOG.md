@@ -1042,24 +1042,103 @@ implementation("androidx.camera:camera-core:$cameraxVersion")
 
 1. **Web端摄像头切换** — 在 Web 管理页面可直接查看摄像头列表并切换摄像头，无需在手机端操作
    - 新增 `GET /api/cameras` 端点，返回枚举到的所有摄像头信息（ID、逻辑ID、标签）
-   - 新增 `POST /api/camera/switch` 端点，接收 `cameraId` + `logicalCameraId` 参数，写入设置并发送切换指令
+   - 新增 `GET /api/camera/switch` 端点，接收 `cameraId` + `logicalCameraId` 查询参数，写入设置并发送切换指令
    - 增强 `/api/status` 返回 `current_camera_id` / `current_logical_camera_id` 字段
 
-2. **Web前端摄像头选择器** — 直播标签页新增摄像头下拉菜单
-   - 加载页面时自动获取摄像头列表并填充下拉选项
-   - 选择摄像头后通过 POST 请求切换，成功后强制刷新 MJPEG 流
-   - 每 30 秒自动刷新摄像头列表，通过状态轮询同步外部变更
-   - 服务未运行时切换仅保存设置，下次启动生效
+2. **Web端摄像头电源开关** — 在 Web 管理页面可直接控制摄像头的打开和关闭，关闭时 Web 服务器保持运行，仅关闭摄像头以降低功耗
+   - 新增 `GET /api/camera/power?action=on|off` 端点，控制摄像头电源
+   - 电源关闭时：`closeCamera2()` + `cameraProvider?.unbindAll()` + `streamer.clear()`
+   - 电源打开时：调用 `initCamera()` 重新初始化摄像头
+   - 新增 `cameraPoweredOn: AtomicBoolean` 标志，服务启动时受该标志控制
+   - 增强 `/api/status` 返回 `camera_powered` 字段
+
+3. **Web前端摄像头电源按钮** — 直播标签页摄像头选择器旁新增电源控制按钮
+   - 打开状态：绿色 ⚡ 图标
+   - 关闭状态：红色 ⚠ 图标带脉冲呼吸动画
+   - 关闭摄像头时 MJPEG 流断开，显示“摄像头已关闭”
+   - 打开时自动重新连接 MJPEG 视频流
+   - 每 5 秒状态轮询同步电源状态
+
+#### 修复
+
+1. **MediaTek 设备摄像头枚举遗漏** — 部分 MediaTek 设备的微距/景深摄像头未被枚举
+   - 原因：`CameraUtils.enumerateCameras()` 中使用焦距签名`$facing:${focalLengths}`进行去重，MediaTek 设备上主摄和微距摄像头常共享相同焦距，导致微距摄像头被错误当作“重复”跳过
+   - 方案：移除焦距签名去重（`seenCameras`），仅保留按 Camera ID 去重（`processedIds`），这已足够防止 MIUI 逻辑多摄组中同一物理摄像头被重复列举
+
+#### Web API 通讯协议
+
+所有 Web 控制接口采用 **GET + URL 查询参数** 格式，与 NanoHTTPD 的 `session.parms` 自动解析配合使用。
+
+##### 摄像头切换协议
+
+```
+请求: GET /api/camera/switch?cameraId={cameraId}&logicalCameraId={logicalCameraId}
+
+参数:
+  - cameraId: string, 必填, 目标物理摄像头 ID (如 "1", "2")
+  - logicalCameraId: string, 可选, 默认为 cameraId 的值
+    逻辑摄像头 ID (如 "0"), 用于 CameraX 绑定和 Camera2 多摄组关联
+
+处理流程:
+  1. 通过 CameraUtils.enumerateCameras() 校验 cameraId 是否有效
+  2. 写入 AppSettings (cameraIndex / cameraId / logicalCameraId)
+  3. 如服务正在运行: 发送 ACTION_SWITCH_CAMERA Intent 触发运行时切换
+  4. 如服务未运行: 仅保存设置, 下次启动生效
+
+响应:
+  {
+    "success": true,
+    "cameraId": "1",
+    "switching": true   // true=已切换, false=仅保存
+  }
+
+错误响应:
+  {"success": false, "error": "Missing cameraId"}
+  {"success": false, "error": "Invalid cameraId: xxx"}
+```
+
+##### 摄像头电源控制协议
+
+```
+请求: GET /api/camera/power?action={on|off}
+
+参数:
+  - action: string, 必填, "on" 或 "off"
+
+电源关闭 (action=off):
+  1. cameraPoweredOn = false
+  2. closeCamera2() — 关闭 Camera2 设备/会话/ImageReader
+  3. cameraProvider?.unbindAll() — 解绑 CameraX UseCase
+  4. streamer.clear() — 清空 MJPEG 流, 前端显示断开
+  5. Web 服务器保持运行, 所有 API 正常响应
+
+电源打开 (action=on):
+  1. cameraPoweredOn = true
+  2. initCamera() — 重新初始化摄像头 (自动选择上次设置的摄像头)
+  3. MJPEG 流恢复推送
+  4. 前端自动重连视频流
+
+响应:
+  {
+    "success": true,
+    "power": true   // true=已打开, false=已关闭
+  }
+
+错误响应:
+  {"success": false, "error": "Missing or invalid action (must be 'on' or 'off')"}
+```
 
 #### 技术调整
 
 - 版本号：versionCode = 6, versionName = "1.3.0"
 - 新增 `service/CameraUtils.kt`，将 `CameraInfo` 和 `enumerateCameras()` 从 `MainActivity` 提取为共享工具类
 - `MainActivity.kt`：删除私有枚举方法，改用 `CameraUtils.enumerateCameras()`
-- `web/CamWebServer.kt`：新增 `/api/cameras`、`/api/camera/switch` 路由
-- `assets/web/index.html`：新增摄像头选择器 UI
-- `assets/web/style.css`：新增选择器样式
-- `assets/web/app.js`：新增摄像头列表加载、切换逻辑、流重连
+- `web/CamWebServer.kt`：新增 `/api/cameras`、`/api/camera/switch`、`/api/camera/power` 路由
+- `service/CameraService.kt`：新增 `ACTION_CAMERA_POWER`、`cameraPoweredOn` 标志、`initCamera()` 受标志守卫
+- `assets/web/index.html`：新增摄像头选择器 UI 和电源按钮
+- `assets/web/style.css`：新增选择器样式和电源按钮样式（脉冲动画）
+- `assets/web/app.js`：新增摄像头列表加载、切换逻辑、电源控制、流重连和状态同步
+- `service/CameraUtils.kt`：移除 `seenCameras` 焦距签名去重（修复 MediaTek 设备摄像头遗漏）
 
 ---
 
