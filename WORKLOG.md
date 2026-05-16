@@ -1,8 +1,8 @@
 # HomeCam v1.0 工作记录与技术文档
 
-**最后更新**：2026-05-13  
-**版本**：1.1.0  
-**状态**：正常运行，已通过 Android 14 构建验证
+**最后更新**：2026-05-15  
+**版本**：1.2.2  
+**状态**：正常运行，AI 事件检测已修复，录像稳定性提升，支持逻辑多摄组切换（小米11U超广角/长焦）
 
 ---
 
@@ -326,7 +326,7 @@ List<Pair<Long, ByteArray>> (JPEG 帧)
 | 编解码器 | H.264/AVC | MediaCodec |
 | 比特率 | 1 Mbps | 固定 |
 | 帧率 | 15 fps | 固定（不随设置变化） |
-| 颜色格式 | YUV420Flexible | 通用兼容 |
+| 颜色格式 | YUV420SemiPlanar (NV12) | 显式指定，跨设备兼容 |
 | I帧间隔 | 5 秒 | 固定 |
 
 #### 文件命名规则
@@ -722,9 +722,14 @@ MJPEG 实时流。Content-Type: `multipart/x-mixed-replace; boundary=--boundary`
 | 输出 | 521 个音频事件类别得分 |
 | 推理频率 | 约每 2 秒一次 |
 
-### 8.3 模型缺失处理
+### 8.3 模型文件清单
 
-如果模型文件不存在，`initVisualDetector()` / `initAudioDetector()` 会捕获异常并打印堆栈，对应功能不可用但不会崩溃。
+| 模型文件 | 大小 | 状态 |
+|----------|------|------|
+| `efficientdet_lite0.tflite` | ~14 MB | ✅ v1.2.0 已包含在 `assets/` 中 |
+| `yamnet.tflite` | ~4 MB | ✅ 已包含在 `assets/` 中 |
+
+如果模型文件缺失，`initVisualDetector()` / `initAudioDetector()` 会捕获异常并打印堆栈，对应功能不可用但不会崩溃。
 
 ---
 
@@ -732,13 +737,15 @@ MJPEG 实时流。Content-Type: `multipart/x-mixed-replace; boundary=--boundary`
 
 ### 9.1 线程安全问题 (P0)
 
-| 位置 | 问题 | 风险 | 修复方案 |
-|------|------|------|----------|
-| `CameraService.latestEventType` | 非 volatile/plain var，多线程读写 | UI 可能读到旧值 | 改为 `@Volatile` 或 `AtomicReference` |
-| `CameraService.latestEventTime` | 同上 | 同上 | 改为 `@Volatile` |
-| `CameraService.isRecordingEvent` | 非 volatile，camera executor 与 event detector 回调可能并发 | 可能丢失事件 | 改为 `@Volatile` 或 `AtomicBoolean` |
-| `EventDetector.isProcessing` | 非 volatile，但实际运行在单线程 executor | 风险较低 | 改为 `@Volatile` |
-| `EventDetector.frameCounter` | 非 volatile，同上 | 风险较低 | 改为 `AtomicInteger` |
+| 位置 | 问题 | 风险 | 状态 |
+|------|------|------|------|
+| `CameraService.latestEventType` | 非 volatile/plain var，多线程读写 | UI 可能读到旧值 | ✅ v1.1.0 已修复 (`@Volatile`) |
+| `CameraService.latestEventTime` | 同上 | 同上 | ✅ v1.1.0 已修复 (`@Volatile`) |
+| `CameraService.isRecordingEvent` | 非 volatile，camera executor 与 event detector 回调可能并发 | 可能丢失事件 | ✅ v1.1.0 已修复 (`@Volatile`) |
+| `EventDetector.isProcessing` | 非 volatile，但实际运行在单线程 executor | 风险较低 | ✅ v1.1.0 已修复 (`@Volatile`) |
+| `EventDetector.frameCounter` | 非 volatile，同上 | 风险较低 | ✅ v1.2.0 已修复 (`@Volatile`) |
+| `CameraService.onEventDetected()` | 两个 `synchronized` 块分别检查状态和操作列表，中间有时间窗口 | 事件帧丢失 | ✅ v1.2.0 已修复（合并为一个原子块） |
+| `CameraService.currentEventType` | 非 volatile，不同线程读写 | `finishEventVideo()` 可能读到 null 跳过保存 | ✅ v1.2.0 已修复 (`@Volatile`)
 
 ### 9.2 内存与性能问题 (P1)
 
@@ -934,8 +941,99 @@ implementation("androidx.camera:camera-core:$cameraxVersion")
 - 版本号：versionCode = 2, versionName = "1.1.0"
 - 移除旧设置项 resolution，新增 scale_factor (key: "scale_factor", 默认 "0.75")
 - 移除旧设置项 camera_lens，新增 camera_index (key: "camera_index", 默认 0)
-- 布局调整：启动按钮行内增加摄像头切换 ImageButton
+### v1.2.0 (2026-05-14)
+
+#### 修复
+
+1. **AI 人物检测模型缺失** — EfficientDet-Lite0 模型文件已下载到 `assets/` 目录
+   - 此前模型文件未包含在仓库中，导致视觉检测静默失败（`initVisualDetector()` 捕获异常后不报错）
+   - 现在已从 MediaPipe 官方仓库下载 float32 版本模型
+
+2. **`onEventDetected()` 竞争条件修复** — 修复了 `synchronized` 块拆分导致的帧丢失问题
+   - 此前两个独立的 `synchronized(postEventFrames)` 块之间存在时间窗口：第一个块设置 `isRecordingEvent = true` 后，`processFrame()` 可能开始向 `postEventFrames` 添加帧，然后第二个块又执行 `clear()` 清空，导致这些帧丢失
+   - 现在所有操作合并到一个 `synchronized` 块中，原子性完成
+
+3. **`currentEventType` 线程安全** — 添加 `@Volatile` 注解
+   - 该字段在 `onEventDetected()`（事件回调线程）中写入，在 `finishEventVideo()`（摄像头线程）中读取
+   - 缺少 volatile 可能导致 `finishEventVideo()` 读到过期的 null 值，跳过录像保存
+
+4. **`EventDetector.frameCounter` 线程安全** — 添加 `@Volatile` 注解
+
+5. **`detect()` 空安全防护** — 添加 `results == null` 检查，防止潜在的 NPE
+
+#### 新增
+
+- EfficientDet-Lite0 模型文件 `efficientdet_lite0.tflite`（14MB）包含在 `assets/` 目录
+
+#### 技术调整
+
+- 版本号：versionCode = 3, versionName = "1.2.0"
+
+### v1.2.1 (2026-05-14)
+
+#### 修复
+
+1. **录像花屏问题** — 修复不同 SoC（Qualcomm、MediaTek）硬件编码器对 YUV 数据格式的歧义
+   - 此前使用 `COLOR_FormatYUV420Flexible` 让编码器自行推断格式，但不同厂商的硬件编码器对"灵活"格式的默认解析不同（部分按 NV21、部分按 NV12），导致 UV 通道错位 → 花屏
+   - 改为显式指定 `COLOR_FormatYUV420SemiPlanar` (NV12)，与 `bitmapToYuv()` 实际输出的 UV 顺序（U在前V在后）精确匹配
+   - 所有符合 Android CDD 的硬件编码器均支持该格式
+
+2. **帧时间戳修正** — 录像 PTS 从绝对 Unix 时间戳改为相对首帧偏移
+   - 此前使用 `System.currentTimeMillis() * 1000` 作为 PTS，数值极大（约 1.7e12 µs），部分播放器解码异常
+   - 改为 `(timestamp - firstFrameTimestamp) * 1000`，确保 PTS 从 0 开始递增
+
+#### 技术调整
+
+- 版本号：versionCode = 4, versionName = "1.2.1"
+
+
+### v1.2.2 (2026-05-15)
+
+#### 新增
+
+1. **支持逻辑多摄组切换（MIUI 隐藏摄像头）** — 解决小米 11 Ultra 等 MIUI 设备上 `LOGICAL_MULTI_CAMERA` 被系统隐藏，CameraX 只能看到主摄和前置，无法选择超广角和长焦的问题
+   - Camera2 API 直接枚举摄像头 ID 0-5，主动探测被 MIUI 隐藏的物理摄像头
+   - 通过焦距判定镜头类型（广角/长焦），自动标注摄像头标签
+   - 直接 `openCamera(physicalId)` 绕过逻辑多摄 HAL 限制，而非通过 `setPhysicalCameraId()`
+   - `ImageFormat.YUV_420_888` 替代 `PixelFormat.RGBA_8888`（MIUI HAL 不支持 RGBA 直接输出）
+   - 手动 YUV→ARGB 转换（BT.601 色彩空间），纯软件渲染
+   - 帧丢弃机制（AtomicInteger 计数 ≥2 时跳过），防止后台线程队列堆积导致 OOM
+   - 切换摄像头时 500ms 延迟关闭旧 Camera2 会话，避免资源冲突
+
+#### 修复
+
+1. **Camera2 会话配置失败** — MIUI 隐藏 `LOGICAL_MULTI_CAMERA` 能力导致 `setPhysicalCameraId()` 调用失败
+   - 直接打开物理摄像头 ID，绕过逻辑多摄能力检查
+
+2. **RGBA_8888 格式不支持** — 小米 11 Ultra 的 Camera HAL 不原生支持 `PixelFormat.RGBA_8888`
+   - 改用 `ImageFormat.YUV_420_888`（所有 Camera HAL 强制支持的格式）
+   - 软件实现 YUV420→ARGB8888 像素格式转换
+
+3. **ImageReader maxImages 缓冲耗尽崩溃** — 图片关闭在后台线程执行，主线程 3 帧后触发 `IllegalStateException`
+   - `image.close()` 在 OnImageAvailableListener 中同步执行，确保帧缓冲区及时释放
+
+4. **主线程 ANR** — 1280x720 分辨率 YUV→ARGB 转换（921,600 像素浮点运算）阻塞主线程
+   - 主线程仅做 ByteBuffer→ByteArray 快速拷贝
+   - YUV→ARGB 转换移至 `cameraExecutor` 后台线程
+
+5. **首次启动监控主页面不刷新** — 点击启动后 CameraService 和 Web 服务成功运行，但主界面状态未更新为运行中
+   - 原因：`startCameraService()` 调用后立即执行 `updateUI()`，此时服务尚未初始化完成，`isRunning` 仍为 `false`
+   - 在 `startCameraService()` 和 `stopCameraService()` 末尾添加 `Handler.postDelayed({ updateUI() }, 500)`，确保服务状态就绪后刷新界面
+
+6. **通知栏点击返回导致 Activity 多开** — 从通知栏点击 "HomeCam 监控中" 返回应用后，相当于新开了一层窗口，需要多次返回才能回到桌面
+   - 原因：通知的 `PendingIntent` 未设置 `Intent.FLAG_ACTIVITY_CLEAR_TOP` 和 `Intent.FLAG_ACTIVITY_SINGLE_TOP`，每次点击都创建新的 `MainActivity` 实例
+   - 在 `startForeground()` 和 `updateNotification()` 的通知 `Intent` 上添加 `FLAG_ACTIVITY_CLEAR_TOP | FLAG_ACTIVITY_SINGLE_TOP` 标志，复用已有 Activity 实例
+
+#### 技术调整
+
+- 版本号：versionCode = 5, versionName = "1.2.2"
+- CameraService：重构 `initCamera2()` / `createCamera2Session()`，移除 `setPhysicalCameraId()`
+- CameraService：新增 `closeCamera2()`、`yuv420ToArgbBytes()`、`camera2PendingFrames` 帧计数器
+- CameraService：重命名 `processCamera2Frame(image: Image)` → `processCamera2Pixels(pixels: IntArray, width: Int, height: Int)`
+- MainActivity：`enumerateCameras()` 新增重复摄像头去重（相同 facing + 焦距签名）和 `actualLogicalId` 修正
+- MainActivity：`startCameraService()` / `stopCameraService()` 增加 500ms 延迟 `updateUI()` 确保界面刷新
+- CameraService：通知 `PendingIntent` 添加 `FLAG_ACTIVITY_CLEAR_TOP | FLAG_ACTIVITY_SINGLE_TOP` 防止 Activity 多开
 
 ---
 
-*文档结束 — HomeCam v1.1 工作记录*
+*文档结束 — HomeCam v1.2.2 工作记录*

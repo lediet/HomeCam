@@ -21,6 +21,22 @@ object AppSettings {
         prefs(context).edit().putInt("camera_index", maxOf(0, index)).apply()
     }
 
+    fun getCameraId(context: Context): String {
+        return prefs(context).getString("camera2_id", "0") ?: "0"
+    }
+
+    fun setCameraId(context: Context, cameraId: String) {
+        prefs(context).edit().putString("camera2_id", cameraId).apply()
+    }
+
+    fun getLogicalCameraId(context: Context): String {
+        return prefs(context).getString("camera2_logical_id", "0") ?: "0"
+    }
+
+    fun setLogicalCameraId(context: Context, cameraId: String) {
+        prefs(context).edit().putString("camera2_logical_id", cameraId).apply()
+    }
+
     fun getFps(context: Context): Int {
         val value = prefs(context).getString("fps", "15") ?: "15"
         return value.toIntOrNull() ?: 15
@@ -53,6 +69,7 @@ object AppSettings {
     }
 
     fun getDetectionIntervalFrames(context: Context): Int {
-        return if (getFps(context) >= 30) 5 else 3
+        val value = prefs(context).getString("detection_interval", "3") ?: "3"
+        return value.toIntOrNull()?.coerceIn(1, 10) ?: 3
     }
 }

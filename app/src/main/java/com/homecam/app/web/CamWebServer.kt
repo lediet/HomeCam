@@ -121,7 +121,7 @@ class CamWebServer(
         val service = ServiceManager.instance
             ?: return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, MIME_PLAINTEXT, "Service not running")
 
-        val file = service.videoRecorder.getVideoFile(fileName)
+        val file = service?.videoRecorder?.getVideoFile(fileName)
             ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Video not found")
 
         return try {

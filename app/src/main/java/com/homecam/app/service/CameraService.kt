@@ -4,10 +4,20 @@ import android.app.*
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
+import android.graphics.ImageFormat
 import android.graphics.Matrix
+import android.hardware.camera2.*
+import android.hardware.camera2.params.OutputConfiguration
+import android.hardware.camera2.params.SessionConfiguration
+import android.media.Image
+import android.media.ImageReader
+import android.os.Handler
+import android.os.Looper
 import android.os.Build
 import android.os.PowerManager
 import android.util.Log
+import android.view.Surface
+import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.NotificationCompat
@@ -44,6 +54,10 @@ class CameraService : LifecycleService() {
         var latestEventType: String? = null
         @Volatile
         var latestEventTime: Long = 0L
+        @Volatile
+        var latestDetectionMs: Long = 0L
+        @Volatile
+        var recordingEnabled: Boolean = true
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -53,13 +67,21 @@ class CameraService : LifecycleService() {
 
     val streamer = MjpegStreamer()
     lateinit var frameBuffer: FrameBuffer
-    lateinit var videoRecorder: VideoRecorder
+    var videoRecorder: VideoRecorder? = null
     lateinit var eventDetector: EventDetector
     private var webServer: CamWebServer? = null
 
+    // Camera2 fields (used when camera is not in CameraX)
+    private var camera2Device: CameraDevice? = null
+    private var camera2Session: CameraCaptureSession? = null
+    private var camera2Reader: ImageReader? = null
+    private var camera2LogicalId: String? = null
+    private val camera2PendingFrames = java.util.concurrent.atomic.AtomicInteger(0)
+
     @Volatile
     private var isRecordingEvent = false
-    private var postEventFrames = mutableListOf<Pair<Long, ByteArray>>()
+    private val postEventFrames = mutableListOf<Pair<Long, ByteArray>>()
+    @Volatile
     private var currentEventType: String? = null
     private var postEventEndTime = 0L
 
@@ -100,8 +122,9 @@ class CameraService : LifecycleService() {
             ACTION_SWITCH_CAMERA -> {
                 Log.d(TAG, "ACTION_SWITCH_CAMERA received")
                 try {
+                    closeCamera2()
                     cameraProvider?.unbindAll()
-                    bindCameraUseCases()
+                    initCamera()
                     Log.d(TAG, "Camera switched")
                 } catch (e: Exception) {
                     Log.e(TAG, "Camera switch FAILED", e)
@@ -141,7 +164,9 @@ class CameraService : LifecycleService() {
     private fun startForeground() {
         createNotificationChannel()
 
-        val notifyIntent = Intent(this, com.homecam.app.ui.MainActivity::class.java)
+        val notifyIntent = Intent(this, com.homecam.app.ui.MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
         val pendingIntent = PendingIntent.getActivity(
             this, 0, notifyIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -188,13 +213,44 @@ class CameraService : LifecycleService() {
     }
 
     private fun initCamera() {
+        val targetCameraId = AppSettings.getCameraId(this)
+        val logicalCameraId = AppSettings.getLogicalCameraId(this)
+
+        // If target is NOT in CameraX (e.g. hidden physical camera on MIUI), use Camera2 directly
+        if (targetCameraId != logicalCameraId) {
+            // Unbind CameraX first to avoid resource conflict
+            cameraProvider?.unbindAll()
+            Handler(Looper.getMainLooper()).postDelayed({
+                closeCamera2()
+                initCamera2(logicalCameraId, targetCameraId)
+            }, 500)
+            return
+        }
+
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
 
         cameraProviderFuture.addListener({
             try {
                 cameraProvider = cameraProviderFuture.get()
                 Log.d(TAG, "ProcessCameraProvider obtained")
-                bindCameraUseCases()
+
+                // Double-check: if target camera is not in CameraX, fall back to Camera2
+                val infos = cameraProvider?.availableCameraInfos
+                val inCameraX = infos?.any { info ->
+                    try { Camera2CameraInfo.from(info).cameraId == targetCameraId } catch (e: Exception) { false }
+                } == true
+
+                if (inCameraX) {
+                    bindCameraUseCases()
+                } else {
+                    Log.w(TAG, "Camera $targetCameraId not in CameraX, switching to Camera2")
+                    // Unbind CameraX first to avoid conflict
+                    cameraProvider?.unbindAll()
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        closeCamera2()
+                        initCamera2(logicalCameraId, targetCameraId)
+                    }, 500)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Camera init failed", e)
             }
@@ -216,28 +272,322 @@ class CameraService : LifecycleService() {
         }
 
         try {
+            val targetCameraId = AppSettings.getCameraId(this)
+            val logicalCameraId = AppSettings.getLogicalCameraId(this)
             val infos = provider.availableCameraInfos
-            val cameraIndex = AppSettings.getCameraIndex(this).coerceIn(0, infos.size - 1)
-            val idx = cameraIndex
-            val cameraSelector = if (infos.isNotEmpty() && cameraIndex in infos.indices) {
-                CameraSelector.Builder()
-                    .addCameraFilter { cameras ->
-                        listOfNotNull(cameras.getOrNull(idx))
+
+            // Diagnostic: log all CameraX camera IDs
+            val allIds = infos.mapNotNull { info ->
+                try { Camera2CameraInfo.from(info).cameraId } catch (e: Exception) { null }
+            }
+            Log.d(TAG, "CameraX availableCameraInfos: $allIds (count=${infos.size})")
+
+            val cameraSelector = try {
+                // Try 1: match physical camera ID directly
+                val physicalMatch = infos.filter { info ->
+                    Camera2CameraInfo.from(info).cameraId == targetCameraId
+                }
+                if (physicalMatch.isNotEmpty()) {
+                    CameraSelector.Builder()
+                        .addCameraFilter { listOfNotNull(physicalMatch.firstOrNull()) }
+                        .build()
+                } else if (targetCameraId != logicalCameraId) {
+                    // Try 2: physical camera not found, fall back to logical camera
+                    val logicalMatch = infos.filter { info ->
+                        Camera2CameraInfo.from(info).cameraId == logicalCameraId
                     }
-                    .build()
-            } else {
+                    if (logicalMatch.isNotEmpty()) {
+                        Log.w(TAG, "Physical camera $targetCameraId not in CameraX, using logical $logicalCameraId")
+                        CameraSelector.Builder()
+                            .addCameraFilter { listOfNotNull(logicalMatch.firstOrNull()) }
+                            .build()
+                    } else {
+                        val idx = AppSettings.getCameraIndex(this).coerceIn(0, infos.size - 1)
+                        if (infos.isNotEmpty() && idx in infos.indices) {
+                            CameraSelector.Builder()
+                                .addCameraFilter { listOfNotNull(infos.getOrNull(idx)) }
+                                .build()
+                        } else {
+                            CameraSelector.DEFAULT_BACK_CAMERA
+                        }
+                    }
+                } else {
+                    val idx = AppSettings.getCameraIndex(this).coerceIn(0, infos.size - 1)
+                    if (infos.isNotEmpty() && idx in infos.indices) {
+                        CameraSelector.Builder()
+                            .addCameraFilter { listOfNotNull(infos.getOrNull(idx)) }
+                            .build()
+                    } else {
+                        CameraSelector.DEFAULT_BACK_CAMERA
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Camera selector failed, using default", e)
                 CameraSelector.DEFAULT_BACK_CAMERA
             }
-            provider.bindToLifecycle(
-                this,
-                cameraSelector,
-                imageAnalysis
-            )
-            Log.d(TAG, "Camera bound to lifecycle, index=$cameraIndex/${infos.size}")
+
+            provider.bindToLifecycle(this, cameraSelector, imageAnalysis)
+            Log.d(TAG, "Camera bound: id=$targetCameraId, logical=$logicalCameraId, total=${infos.size}")
         } catch (e: Exception) {
             Log.e(TAG, "Bind camera failed", e)
         }
     }
+
+    // region Camera2 implementation (for hidden physical cameras)
+
+    private fun getCamera2OutputSize(manager: CameraManager, cameraId: String): android.util.Size {
+        return try {
+            val chars = manager.getCameraCharacteristics(cameraId)
+            val config = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return android.util.Size(1280, 720)
+            val sizes = config.getOutputSizes(ImageFormat.YUV_420_888) ?: return android.util.Size(1280, 720)
+            // Pick the largest size <= 1280x720 that preserves 4:3 aspect ratio
+            var best = android.util.Size(640, 480)
+            for (s in sizes) {
+                if (s.width <= 1280 && s.height <= 720 && s.width.toLong() * s.height > best.width.toLong() * best.height) {
+                    best = s
+                }
+            }
+            best
+        } catch (e: Exception) {
+            Log.e(TAG, "getCamera2OutputSize failed", e)
+            android.util.Size(1280, 720)
+        }
+    }
+
+    private fun initCamera2(logicalId: String, physicalId: String) {
+        Log.d(TAG, "initCamera2: logical=$logicalId, physical=$physicalId")
+        val manager = getSystemService(android.content.Context.CAMERA_SERVICE) as CameraManager
+
+        // Log physical camera IDs for the logical camera (diagnostic)
+        try {
+            val logicalChars = manager.getCameraCharacteristics(logicalId)
+            val physIds = logicalChars.physicalCameraIds
+            Log.d(TAG, "Physical camera IDs for logical $logicalId: $physIds")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get physical camera IDs", e)
+        }
+
+        val cameraToOpen = if (physicalId != logicalId) physicalId else logicalId
+
+        // Get output size on background thread to avoid main thread block
+        val mainHandler = Handler(Looper.getMainLooper())
+        cameraExecutor.execute {
+            try {
+                val outputSize = getCamera2OutputSize(manager, cameraToOpen)
+                Log.d(TAG, "Camera2 output size: ${outputSize.width}x${outputSize.height} for camera $cameraToOpen")
+
+                // Create ImageReader (must be on main thread for surface lifecycle)
+                mainHandler.post {
+                    val reader = ImageReader.newInstance(outputSize.width, outputSize.height, ImageFormat.YUV_420_888, 2)
+                    reader.setOnImageAvailableListener({ r ->
+                        val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
+                        try {
+                            if (image.format != ImageFormat.YUV_420_888 || image.planes.size < 3) {
+                                image.close()
+                                return@setOnImageAvailableListener
+                            }
+                            // Drop frame if executor is backed up (prevents latency buildup and OOM)
+                            if (camera2PendingFrames.get() >= 2) {
+                                image.close()
+                                return@setOnImageAvailableListener
+                            }
+                            // Only copy raw bytes on main thread (fast), convert on executor
+                            val yArr = ByteArray(image.planes[0].buffer.remaining())
+                            image.planes[0].buffer.get(yArr)
+                            val uArr = ByteArray(image.planes[1].buffer.remaining())
+                            image.planes[1].buffer.get(uArr)
+                            val vArr = ByteArray(image.planes[2].buffer.remaining())
+                            image.planes[2].buffer.get(vArr)
+                            val iw = image.width
+                            val ih = image.height
+                            val ySr = image.planes[0].rowStride
+                            val uSr = image.planes[1].rowStride
+                            val yPs = image.planes[0].pixelStride
+                            val uPs = image.planes[1].pixelStride
+                            image.close()
+                            camera2PendingFrames.incrementAndGet()
+                            cameraExecutor.execute {
+                                try {
+                                    val px = yuv420ToArgbBytes(yArr, uArr, vArr, iw, ih, ySr, uSr, yPs, uPs)
+                                    processCamera2Pixels(px, iw, ih)
+                                } finally {
+                                    camera2PendingFrames.decrementAndGet()
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error in image listener", e)
+                            image.close()
+                        }
+                    }, mainHandler)
+                    camera2Reader = reader
+                    camera2LogicalId = cameraToOpen
+
+                    try {
+                        manager.openCamera(cameraToOpen, object : CameraDevice.StateCallback() {
+                            override fun onOpened(device: CameraDevice) {
+                                Log.d(TAG, "Camera2 device opened: $cameraToOpen")
+                                camera2Device = device
+                                createCamera2Session(device, reader, cameraToOpen)
+                            }
+
+                            override fun onDisconnected(device: CameraDevice) {
+                                Log.w(TAG, "Camera2 device disconnected: $cameraToOpen")
+                                device.close()
+                                camera2Device = null
+                            }
+
+                            override fun onError(device: CameraDevice, error: Int) {
+                                Log.e(TAG, "Camera2 device error: $cameraToOpen, error=$error")
+                                device.close()
+                                camera2Device = null
+                            }
+                        }, mainHandler)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Camera2 openCamera failed", e)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "getCamera2OutputSize failed on bg thread", e)
+            }
+        }
+    }
+
+    private fun createCamera2Session(device: CameraDevice, reader: ImageReader, physicalId: String) {
+        try {
+            val outputConfig = OutputConfiguration(reader.surface)
+
+            val sessionConfig = SessionConfiguration(
+                SessionConfiguration.SESSION_REGULAR,
+                listOf(outputConfig),
+                cameraExecutor,
+                object : CameraCaptureSession.StateCallback() {
+                    override fun onConfigured(session: CameraCaptureSession) {
+                        Log.d(TAG, "Camera2 session configured for camera=$physicalId")
+                        camera2Session = session
+                        val request = device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
+                        request.addTarget(reader.surface)
+                        session.setRepeatingRequest(request.build(), null, null)
+                    }
+
+                    override fun onConfigureFailed(session: CameraCaptureSession) {
+                        Log.e(TAG, "Camera2 session configure failed for camera=$physicalId")
+                    }
+                }
+            )
+            device.createCaptureSession(sessionConfig)
+        } catch (e: Exception) {
+            Log.e(TAG, "createCamera2Session failed", e)
+        }
+    }
+
+    private fun closeCamera2() {
+        try { camera2Session?.close() } catch (_: Exception) {}
+        camera2Session = null
+        try { camera2Device?.close() } catch (_: Exception) {}
+        camera2Device = null
+        try { camera2Reader?.close() } catch (_: Exception) {}
+        camera2Reader = null
+        camera2LogicalId = null
+    }
+
+    private fun getSensorOrientation(manager: CameraManager, cameraId: String, facing: Int): Int {
+        return try {
+            val chars = manager.getCameraCharacteristics(cameraId)
+            val degrees = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
+            if (facing == CameraCharacteristics.LENS_FACING_FRONT) (360 - degrees) % 360 else degrees
+        } catch (e: Exception) {
+            0
+        }
+    }
+
+    private fun yuv420ToArgbBytes(
+        yBuf: ByteArray, uBuf: ByteArray, vBuf: ByteArray,
+        width: Int, height: Int,
+        yRowStride: Int, uRowStride: Int,
+        yPixelStride: Int, uPixelStride: Int
+    ): IntArray {
+        val pixels = IntArray(width * height)
+        for (y in 0 until height) {
+            val yRowOffset = y * yRowStride
+            val uvRowOffset = (y / 2) * uRowStride
+            for (x in 0 until width) {
+                val yVal = yBuf[yRowOffset + x * yPixelStride].toInt() and 0xFF
+                val uVal = uBuf[uvRowOffset + (x / 2) * uPixelStride].toInt() and 0xFF
+                val vVal = vBuf[uvRowOffset + (x / 2) * uPixelStride].toInt() and 0xFF
+                val r = (yVal + 1.402f * (vVal - 128)).toInt().coerceIn(0, 255)
+                val g = (yVal - 0.344f * (uVal - 128) - 0.714f * (vVal - 128)).toInt().coerceIn(0, 255)
+                val b = (yVal + 1.772f * (uVal - 128)).toInt().coerceIn(0, 255)
+                pixels[y * width + x] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+            }
+        }
+        return pixels
+    }
+
+    private fun processCamera2Pixels(pixels: IntArray, width: Int, height: Int) {
+        try {
+            val bitmap = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
+            val croppedBitmap = bitmap
+
+            // Apply sensor rotation
+            val manager = getSystemService(android.content.Context.CAMERA_SERVICE) as CameraManager
+            val facing = try {
+                manager.getCameraCharacteristics(camera2LogicalId ?: "0")
+                    .get(CameraCharacteristics.LENS_FACING) ?: CameraCharacteristics.LENS_FACING_BACK
+            } catch (e: Exception) { CameraCharacteristics.LENS_FACING_BACK }
+            val rotation = getSensorOrientation(manager, camera2LogicalId ?: "0", facing)
+            val rotatedBitmap = if (rotation != 0) {
+                val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+                Bitmap.createBitmap(croppedBitmap, 0, 0, croppedBitmap.width, croppedBitmap.height, matrix, true).also {
+                    croppedBitmap.recycle()
+                }
+            } else croppedBitmap
+
+            // Same processing pipeline as CameraX path
+            val scale = AppSettings.getScaleFactor(this)
+            val newW = (rotatedBitmap.width * scale).toInt()
+            val newH = (rotatedBitmap.height * scale).toInt()
+            val scaledBitmap = if (rotatedBitmap.width != newW || rotatedBitmap.height != newH) {
+                Bitmap.createScaledBitmap(rotatedBitmap, newW, newH, true).also {
+                    rotatedBitmap.recycle()
+                }
+            } else rotatedBitmap
+
+            val timestamp = System.currentTimeMillis()
+
+            if (AppSettings.isMotionDetectionEnabled(this) ||
+                AppSettings.isDangerDetectionEnabled(this)) {
+                eventDetector.analyzeFrame(scaledBitmap, timestamp)
+            }
+
+            eventDetector.applyDetectionOverlay(scaledBitmap)
+            latestDetectionMs = eventDetector.lastDetectionMs
+
+            val jpegData = compressToJpeg(scaledBitmap, 75)
+            streamer.pushFrame(jpegData)
+            frameBuffer.addFrame(timestamp, jpegData)
+
+            var shouldFinish = false
+            if (isRecordingEvent) {
+                synchronized(postEventFrames) {
+                    postEventFrames.add(timestamp to jpegData)
+                    if (timestamp >= postEventEndTime) {
+                        isRecordingEvent = false
+                        shouldFinish = true
+                    }
+                }
+            }
+
+            if (shouldFinish) {
+                finishEventVideo()
+            }
+
+            scaledBitmap.recycle()
+        } catch (e: Exception) {
+            Log.e(TAG, "Camera2 frame processing error", e)
+        }
+    }
+
+    // endregion
 
     private fun processFrame(imageProxy: ImageProxy) {
         try {
@@ -274,16 +624,21 @@ class CameraService : LifecycleService() {
                 }
             } else rotatedBitmap
 
-            val jpegData = compressToJpeg(scaledBitmap, 75)
             val timestamp = System.currentTimeMillis()
-
-            streamer.pushFrame(jpegData)
-            frameBuffer.addFrame(timestamp, jpegData)
 
             if (AppSettings.isMotionDetectionEnabled(this) ||
                 AppSettings.isDangerDetectionEnabled(this)) {
                 eventDetector.analyzeFrame(scaledBitmap, timestamp)
             }
+
+            // Persist detection overlay (bounding box) on every frame
+            eventDetector.applyDetectionOverlay(scaledBitmap)
+            latestDetectionMs = eventDetector.lastDetectionMs
+
+            val jpegData = compressToJpeg(scaledBitmap, 75)
+
+            streamer.pushFrame(jpegData)
+            frameBuffer.addFrame(timestamp, jpegData)
 
             var shouldFinish = false
             if (isRecordingEvent) {
@@ -316,19 +671,19 @@ class CameraService : LifecycleService() {
 
     private fun onEventDetected(eventType: String) {
         Log.d(TAG, "onEventDetected: $eventType")
+        if (!recordingEnabled) {
+            Log.d(TAG, "Recording disabled, skipping")
+            return
+        }
+        val saveDuration = AppSettings.getSaveDurationSec(this)
+        val now = System.currentTimeMillis()
+
         synchronized(postEventFrames) {
             if (isRecordingEvent) return
             isRecordingEvent = true
-        }
-
-        val saveDuration = AppSettings.getSaveDurationSec(this)
-        val now = System.currentTimeMillis()
-        currentEventType = eventType
-        postEventEndTime = now + saveDuration * 1000L
-
-        synchronized(postEventFrames) {
+            currentEventType = eventType
+            postEventEndTime = now + saveDuration * 1000L
             postEventFrames.clear()
-            frameBuffer.getLatestFrame()?.let { postEventFrames.add(now to it.second) }
         }
 
         latestEventType = eventType
@@ -350,7 +705,7 @@ class CameraService : LifecycleService() {
             postEventFrames.clear()
         }
         currentEventType = null
-        videoRecorder.saveEventVideo(eventType, preFrames, framesToSave)
+        videoRecorder?.saveEventVideo(eventType, preFrames, framesToSave)
     }
 
     private fun updateNotification(eventType: String) {
@@ -361,7 +716,9 @@ class CameraService : LifecycleService() {
             else -> getString(R.string.event_unknown)
         }
 
-        val notifyIntent = Intent(this, com.homecam.app.ui.MainActivity::class.java)
+        val notifyIntent = Intent(this, com.homecam.app.ui.MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
         val pendingIntent = PendingIntent.getActivity(
             this, 0, notifyIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -407,6 +764,7 @@ class CameraService : LifecycleService() {
         sendBroadcast(Intent(ACTION_STATE_CHANGED))
         ServiceManager.instance = null
 
+        closeCamera2()
         try { cameraProvider?.unbindAll() } catch (_: Exception) {}
 
         eventDetector.release()

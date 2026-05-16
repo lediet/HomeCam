@@ -1,10 +1,11 @@
 package com.homecam.app.detection
 
 import android.content.Context
-import android.graphics.Bitmap
+import android.graphics.*
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.util.Log
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
@@ -12,9 +13,6 @@ import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
 import com.homecam.app.service.AppSettings
 import org.tensorflow.lite.task.audio.classifier.AudioClassifier
 import org.tensorflow.lite.support.audio.TensorAudio
-import org.tensorflow.lite.support.label.Category
-
-import android.util.Log
 
 class EventDetector(
     private val context: Context,
@@ -34,9 +32,19 @@ class EventDetector(
     private var lastCryTriggerTime = 0L
     private val cooldownMs = 5000L
 
+    @Volatile
     private var frameCounter = 0
     @Volatile
     private var isProcessing = false
+    @Volatile
+    var lastDetectionMs: Long = 0L
+        private set
+    @Volatile
+    private var lastBoxRect: RectF? = null
+    @Volatile
+    private var lastBoxLabel: String? = null
+    @Volatile
+    private var lastBoxScore: Float = 0f
 
     private val cryLabels = setOf("Crying", "Crying, sobbing", "Baby cry, infant cry", "Sobbing")
 
@@ -80,18 +88,34 @@ class EventDetector(
         if (frameCounter % interval != 0) return
         if (isProcessing) return
 
+        // Clear stale overlay before new detection
+        lastBoxRect = null
+
         isProcessing = true
         try {
             val detector = objectDetector ?: run { isProcessing = false; return }
             val mpImage = BitmapImageBuilder(bitmap).build()
-            val results = detector.detect(mpImage)
 
+            val detectStart = System.nanoTime()
+            val results = detector.detect(mpImage)
+            lastDetectionMs = (System.nanoTime() - detectStart) / 1_000_000
+
+            if (results == null) return
+
+            var personFound = false
             for (detection in results.detections()) {
                 for (category in detection.categories()) {
                     val categoryName = category.categoryName()
                     val score = category.score()
 
                     if (categoryName.equals("person", ignoreCase = true) && score > 0.5f) {
+                        if (!personFound) {
+                            lastBoxRect = detection.boundingBox()
+                            lastBoxLabel = categoryName
+                            lastBoxScore = score
+                            personFound = true
+                        }
+
                         if (System.currentTimeMillis() - lastMotionTriggerTime > cooldownMs) {
                             lastMotionTriggerTime = System.currentTimeMillis()
 
@@ -102,7 +126,6 @@ class EventDetector(
                                 onEventDetected("danger")
                             }
                         }
-                        return
                     }
                 }
             }
@@ -111,6 +134,11 @@ class EventDetector(
         } finally {
             isProcessing = false
         }
+    }
+
+    fun applyDetectionOverlay(bitmap: Bitmap) {
+        val rect = lastBoxRect ?: return
+        drawDetection(bitmap, rect, lastBoxLabel ?: "person", lastBoxScore)
     }
 
     fun startAudioDetection() {
@@ -167,6 +195,37 @@ class EventDetector(
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    private fun drawDetection(bitmap: Bitmap, rectF: RectF, label: String, score: Float) {
+        val canvas = Canvas(bitmap)
+        val imageW = bitmap.width.toFloat()
+
+        val strokeW = (imageW * 0.006f).coerceAtLeast(2f)
+        val boxPaint = Paint().apply {
+            color = Color.GREEN
+            style = Paint.Style.STROKE
+            strokeWidth = strokeW
+        }
+        canvas.drawRect(rectF, boxPaint)
+
+        val text = "$label ${(score * 100).toInt()}%"
+        val fontSize = imageW * 0.055f
+        val textPaint = Paint().apply {
+            color = Color.GREEN
+            textSize = fontSize
+            isAntiAlias = true
+        }
+        val textWidth = textPaint.measureText(text)
+        val pad = fontSize * 0.15f
+        val labelH = fontSize * 1.35f
+
+        val bgPaint = Paint().apply {
+            color = Color.argb(160, 0, 0, 0)
+            style = Paint.Style.FILL
+        }
+        canvas.drawRect(rectF.left, rectF.top - labelH, rectF.left + textWidth + pad * 2f, rectF.top, bgPaint)
+        canvas.drawText(text, rectF.left + pad, rectF.top - fontSize * 0.25f, textPaint)
     }
 
     private fun isCryLabel(label: String): Boolean {

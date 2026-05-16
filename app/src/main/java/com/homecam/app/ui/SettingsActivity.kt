@@ -106,6 +106,16 @@ class SettingsActivity : AppCompatActivity() {
             }
             detectionCategory.addPreference(motionDetection)
 
+            val detectionInterval = androidx.preference.ListPreference(context).apply {
+                key = "detection_interval"
+                title = getString(R.string.pref_detection_interval)
+                entries = arrayOf("每 1 帧", "每 2 帧", "每 3 帧", "每 5 帧", "每 10 帧")
+                entryValues = arrayOf("1", "2", "3", "5", "10")
+                setDefaultValue("3")
+                summaryProvider = androidx.preference.ListPreference.SimpleSummaryProvider.getInstance()
+            }
+            detectionCategory.addPreference(detectionInterval)
+
             val cryDetection = androidx.preference.SwitchPreferenceCompat(context).apply {
                 key = "cry_detection"
                 title = getString(R.string.pref_cry_detection)

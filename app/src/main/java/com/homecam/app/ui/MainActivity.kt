@@ -10,6 +10,8 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.widget.Button
 import android.widget.ImageButton
@@ -44,6 +46,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var toggleButton: Button
     private lateinit var cameraSwitchButton: ImageButton
     private lateinit var latestEvent: TextView
+    private lateinit var detectionTime: TextView
+    private lateinit var recordingSwitch: androidx.appcompat.widget.SwitchCompat
 
     private val requiredPermissions = buildList {
         add(Manifest.permission.CAMERA)
@@ -100,6 +104,8 @@ class MainActivity : AppCompatActivity() {
             toggleButton = findViewById(R.id.toggle_button)
             cameraSwitchButton = findViewById(R.id.camera_switch_button)
             latestEvent = findViewById(R.id.latest_event)
+            detectionTime = findViewById(R.id.detection_time)
+            recordingSwitch = findViewById(R.id.recording_switch)
             Log.d(TAG, "findViewById all done")
         } catch (e: Exception) {
             Log.e(TAG, "findViewById FAILED", e)
@@ -107,6 +113,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         setupCameraSwitchButton()
+
+        recordingSwitch.setOnCheckedChangeListener { _, isChecked ->
+            CameraService.recordingEnabled = isChecked
+        }
 
         toggleButton.setOnClickListener {
             if (CameraService.isRunning.get()) {
@@ -145,9 +155,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateCameraSwitchIcon() {
         val count = enumerateCameras().size
-        val index = AppSettings.getCameraIndex(this)
+        val cameraId = AppSettings.getCameraId(this)
         cameraSwitchButton.contentDescription = if (count > 0) {
-            "当前摄像头:$index"
+            "当前摄像头:$cameraId"
         } else {
             getString(R.string.camera_select)
         }
@@ -156,34 +166,122 @@ class MainActivity : AppCompatActivity() {
     private fun enumerateCameras(): List<CameraInfo> {
         val manager = getSystemService(Context.CAMERA_SERVICE) as? CameraManager ?: return emptyList()
         val result = mutableListOf<CameraInfo>()
+        val processedIds = mutableSetOf<String>()
+        val seenCameras = mutableSetOf<String>()
         try {
-            for ((i, id) in manager.cameraIdList.withIndex()) {
-                val chars = try { manager.getCameraCharacteristics(id) } catch (e: Exception) { null } ?: continue
-                val facing = chars.get(CameraCharacteristics.LENS_FACING)
-                val label = when (facing) {
-                    CameraCharacteristics.LENS_FACING_BACK -> "后置"
-                    CameraCharacteristics.LENS_FACING_FRONT -> "前置"
-                    else -> "外接"
+            // Collect all known IDs + probe additional IDs (some devices hide cameras from cameraIdList)
+            val knownIds = manager.cameraIdList.toMutableSet()
+            val originalCameraIds = manager.cameraIdList.toSet()  // unmodified list for logical ID mapping
+
+            // Determine the logical rear camera from cameraIdList (for mapping probed physical sub-cameras)
+            val logicalRearId = manager.cameraIdList.firstOrNull { id ->
+                try { manager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK }
+                catch (e: Exception) { false }
+            } ?: "0"
+            Log.d(TAG, "Logical rear camera ID: $logicalRearId")
+
+            // Probe camera IDs beyond the reported list (Xiaomi MIUI sometimes hides IDs)
+            for (probeId in 0..5) {
+                val pid = probeId.toString()
+                if (pid !in knownIds) {
+                    try {
+                        manager.getCameraCharacteristics(pid)
+                        knownIds.add(pid)
+                        Log.d(TAG, "Probed extra camera ID: $pid")
+                    } catch (_: Exception) { }
                 }
-                result.add(CameraInfo(i, "摄像头 $i ($label)"))
+            }
+
+            for (id in knownIds) {
+                if (id in processedIds) continue
+                processedIds.add(id)
+                val chars = try { manager.getCameraCharacteristics(id) } catch (e: Exception) { null }
+                if (chars == null) {
+                    result.add(CameraInfo(result.size, id, id, "摄像头 ${result.size} (未知)"))
+                    continue
+                }
+
+                val facing = chars.get(CameraCharacteristics.LENS_FACING)
+                val lensDesc = getLensTypeLabel(chars)
+                val focalLengths = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+                Log.d(TAG, "Camera $id: facing=$facing, focalLengths=${focalLengths?.joinToString()}, lensType=$lensDesc")
+
+                // Skip duplicates: same facing AND same focal lengths
+                val signature = "$facing:${focalLengths?.joinToString(",")}"
+                if (!seenCameras.add(signature)) {
+                    Log.d(TAG, "Skipping duplicate camera $id (signature=$signature)")
+                    continue
+                }
+
+                val actualLogicalId = if (id in originalCameraIds || facing != CameraCharacteristics.LENS_FACING_BACK) id else logicalRearId
+                val cameraLabel = "摄像头 ${result.size} (${getFacingLabel(facing)}$lensDesc)"
+                result.add(CameraInfo(result.size, id, actualLogicalId, cameraLabel))
+
+                // API 28+: check for logical multi-camera and enumerate physical sub-cameras
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    try {
+                        val capabilities = chars.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)
+                        val isLogical = capabilities?.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA) == true
+                        if (isLogical) {
+                            val rawIds = chars.get(android.hardware.camera2.CameraCharacteristics.Key("android.physicalCameraIds", Set::class.java))
+                            @Suppress("UNCHECKED_CAST")
+                            val physicalIds = rawIds as? Set<String>
+                            Log.d(TAG, "Camera $id is logical multi-camera, physicalIds=$physicalIds")
+                            if (physicalIds != null) {
+                                for (pid in physicalIds) {
+                                    if (pid in processedIds) continue
+                                    processedIds.add(pid)
+                                    val pChars = try { manager.getCameraCharacteristics(pid) } catch (e: Exception) { null }
+                                    val pLens = getLensTypeLabel(pChars)
+                                    val facingLabel = getFacingLabel(chars.get(CameraCharacteristics.LENS_FACING))
+                                    val pLabel = "摄像头 ${result.size} ($facingLabel$pLens)"
+                                    result.add(CameraInfo(result.size, pid, id, pLabel))
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Logical multi-camera enumeration failed", e)
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "enumerateCameras failed", e)
         }
+        android.util.Log.d(TAG, "enumerateCameras: found ${result.size} cameras: $result")
         return result
+    }
+
+    private fun getFacingLabel(facing: Int?): String = when (facing) {
+        CameraCharacteristics.LENS_FACING_BACK -> "后置"
+        CameraCharacteristics.LENS_FACING_FRONT -> "前置"
+        else -> "外接"
+    }
+
+    private fun getLensTypeLabel(chars: android.hardware.camera2.CameraCharacteristics?): String {
+        if (chars == null) return ""
+        val focalLengths = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS) ?: return ""
+        if (focalLengths.isEmpty()) return ""
+        return when {
+            focalLengths[0] < 2.5f -> " 广角"
+            focalLengths[0] > 12.0f -> " 长焦"
+            else -> ""
+        }
     }
 
     private fun showCameraSelectorDialog() {
         val cameras = enumerateCameras()
         if (cameras.isEmpty()) return
 
-        val currentIndex = AppSettings.getCameraIndex(this)
+        val currentCameraId = AppSettings.getCameraId(this)
+        val currentIdx = cameras.indexOfFirst { it.cameraId == currentCameraId }.coerceIn(0, cameras.size - 1)
         val names = cameras.map { it.label }.toTypedArray()
 
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle(R.string.camera_select)
-            .setSingleChoiceItems(names, currentIndex.coerceIn(0, cameras.size - 1)) { dialog, which ->
+            .setSingleChoiceItems(names, currentIdx) { dialog, which ->
                 AppSettings.setCameraIndex(this, cameras[which].index)
+                AppSettings.setCameraId(this, cameras[which].cameraId)
+                AppSettings.setLogicalCameraId(this, cameras[which].logicalCameraId)
                 updateCameraSwitchIcon()
                 if (CameraService.isRunning.get()) {
                     val intent = Intent(this, CameraService::class.java).apply {
@@ -197,7 +295,7 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private data class CameraInfo(val index: Int, val label: String)
+    private data class CameraInfo(val index: Int, val cameraId: String, val logicalCameraId: String, val label: String)
 
     private fun updateUI() {
         updateCameraSwitchIcon()
@@ -233,6 +331,18 @@ class MainActivity : AppCompatActivity() {
             } else {
                 latestEvent.text = getString(R.string.no_events)
             }
+
+            val detectMs = CameraService.latestDetectionMs
+            if (detectMs > 0 && CameraService.isRunning.get()) {
+                val interval = AppSettings.getDetectionIntervalFrames(this)
+                detectionTime.text = "检测: ${detectMs}ms | 间隔: ${interval}帧"
+                detectionTime.visibility = TextView.VISIBLE
+            } else {
+                detectionTime.visibility = TextView.GONE
+            }
+
+            recordingSwitch.isChecked = CameraService.recordingEnabled
+            recordingSwitch.visibility = if (CameraService.isRunning.get()) TextView.VISIBLE else TextView.GONE
         } catch (e: Exception) {
             Log.e(TAG, "updateUI FAILED", e)
         }
@@ -262,6 +372,9 @@ class MainActivity : AppCompatActivity() {
             startService(intent)
         }
         updateUI()
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (!isFinishing && !isDestroyed) updateUI()
+        }, 500)
     }
 
     private fun stopCameraService() {
@@ -271,6 +384,9 @@ class MainActivity : AppCompatActivity() {
         }
         startService(intent)
         updateUI()
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (!isFinishing && !isDestroyed) updateUI()
+        }, 500)
     }
 
     private fun getLocalIpAddress(): String {

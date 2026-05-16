@@ -7,12 +7,14 @@ HomeCam 是一款将闲置 Android 手机转化为局域网监控摄像头的应
 ## 功能特性
 
 - **实时视频流** — 通过 MJPEG over HTTP 在局域网内任意浏览器中查看实时画面
+- **多摄像头支持** — 运行时切换前后置/外接摄像头，支持 MIUI 等系统的逻辑多摄组（超广角/长焦），无需重启服务
 - **息屏后台运行** — 前台服务 + WakeLock，锁屏后持续采集和推流
 - **AI 事件检测**
   - **人物移动检测** — 基于 MediaPipe EfficientDet-Lite0，检测画面中的人物
   - **婴儿哭声识别** — 基于 TensorFlow Lite YAMNet，识别婴儿哭声和哭泣声
   - **危险检测** — 检测到人物时触发告警
 - **事件录像** — 检测到事件时自动录制 MP4 视频，环形帧缓冲可回溯事件前数秒
+  - **录像开关** — 运行时实时控制是否保存录像
 - **内置 Web 管理界面** — 暗色主题 Web UI，支持实时画面、事件历史、视频回放和下载
 - **RESTful API** — 提供 JSON 接口供扩展集成
 
@@ -29,7 +31,7 @@ HomeCam 是一款将闲置 Android 手机转化为局域网监控摄像头的应
 | 语言 | Kotlin | 1.9.22 |
 | 最低 SDK | Android 8.0 (API 26) | - |
 | 目标 SDK | Android 14 (API 34) | - |
-| 视频采集 | [CameraX](https://developer.android.com/training/camerax) | 1.3.1 |
+| 视频采集 | CameraX + Camera2 (多摄) | 1.3.1 |
 | HTTP 服务器 | [NanoHTTPD](https://github.com/NanoHttpd/nanohttpd) | 2.3.1 |
 | 视频编码 | MediaCodec + MediaMuxer | Android Framework |
 | 人物检测 | [MediaPipe Tasks Vision](https://developers.google.com/mediapipe/solutions/vision/object_detector) | 0.10.8 |
@@ -54,8 +56,6 @@ HomeCam 是一款将闲置 Android 手机转化为局域网监控摄像头的应
 git clone https://github.com/yourusername/homecam.git
 cd homecam
 
-# 下载 AI 模型文件（参考 app/src/main/assets/models/README.md）
-# 将 efficientdet_lite0.tflite 放入 app/src/main/assets/models/
 
 # 使用 Gradle 构建
 ./gradlew assembleDebug
@@ -65,10 +65,10 @@ cd homecam
 
 ### AI 模型下载
 
-应用需要以下模型文件放置在 `app/src/main/assets/models/` 目录下：
+应用需要以下模型文件放置在 `app/src/main/assets/` 目录下：
 
-1. **efficientdet_lite0.tflite** — MediaPipe 物体检测模型
-   - 下载地址：[Google Cloud](https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/int8/latest/efficientdet_lite0.tflite)
+1. **efficientdet_lite0.tflite** — MediaPipe 物体检测模型（v1.2.0 起已包含在仓库中）
+   - 来源：[MediaPipe Model Zoo](https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float32/latest/efficientdet_lite0.tflite)
 2. **yamnet.tflite** — YAMNet 音频分类模型（已包含在仓库中）
    - 来源：[TensorFlow Hub](https://tfhub.dev/google/lite-model/yamnet/classification/tflite/1)
 
@@ -188,9 +188,10 @@ app/src/main/assets/
 
 ## 已知问题
 
-1. **EfficientDet 模型需手动下载** — 因文件较大未包含在仓库中
-2. **部分设备 CameraX 兼容问题** — 极少数旧款手机的后置摄像头可能无法正常初始化
-3. **音频检测仅支持 16kHz 采样率** — YAMNet 模型要求固定输入格式
+1. **部分设备 CameraX 兼容问题** — 极少数旧款手机的后置摄像头可能无法正常初始化
+2. **MIUI 隐藏物理摄像头** — 小米 11 Ultra 等 MIUI 设备会隐藏 `LOGICAL_MULTI_CAMERA` 能力，CameraX 仅检测到主摄和前置。v1.2.2 通过 Camera2 直接探测绕过此限制，超广角和长焦可正常使用
+2. **音频检测仅支持 16kHz 采样率** — YAMNet 模型要求固定输入格式
+3. **部分设备录像花屏** — 不同 SoC 硬件编码器对 YUV 格式敏感，v1.2.1 已修复（如遇问题请更新）
 
 ## 待开发功能
 

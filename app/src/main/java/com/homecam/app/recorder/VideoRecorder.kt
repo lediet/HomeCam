@@ -29,8 +29,8 @@ class VideoRecorder(
 
     private val settings = AppSettings
     private val outputDir = File(
-        context.getExternalFilesDir(android.os.Environment.DIRECTORY_MOVIES)
-            ?: context.filesDir, "HomeCam"
+        android.os.Environment.getExternalStorageDirectory(),
+        "HomeCam"
     )
 
     init {
@@ -86,7 +86,7 @@ class VideoRecorder(
         format.setInteger(MediaFormat.KEY_BIT_RATE, 1_000_000)
         format.setInteger(MediaFormat.KEY_FRAME_RATE, 15)
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT,
-            MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
+            MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar)
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 5)
 
         var encoder: MediaCodec? = null
@@ -117,7 +117,7 @@ class VideoRecorder(
                     inputBuffer.clear()
                     inputBuffer.put(yuv)
 
-                    val presentationTimeUs = timestamp * 1000
+                    val presentationTimeUs = (timestamp - frames.first().first) * 1000
                     encoder.queueInputBuffer(
                         inputBufferIndex, 0, yuv.size,
                         presentationTimeUs, 0
