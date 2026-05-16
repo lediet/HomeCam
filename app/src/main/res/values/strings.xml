@@ -16,7 +16,8 @@
     <!-- Events -->
     <string name="event_motion">人物移动</string>
     <string name="event_cry">婴儿哭声</string>
-    <string name="event_danger">危险检测</string>
+    <string name="event_sleep">宝宝睡着了</string>
+    <string name="event_wake_up">宝宝睡醒了</string>
     <string name="event_unknown">未知事件</string>
     <string name="latest_event_label">最新事件</string>
     <string name="no_events">暂无事件</string>
@@ -40,12 +41,12 @@
     <string name="pref_fps">帧率</string>
     <string name="pref_category_network">网络</string>
     <string name="pref_web_port">Web 服务端口</string>
-    <string name="pref_category_detection">智能检测</string>
+    <string name="pref_category_detection">AI检测</string>
     <string name="pref_motion_detection">人物移动检测</string>
     <string name="pref_cry_detection">婴儿哭声检测</string>
     <string name="pref_cry_detection_summary">需要麦克风权限</string>
-    <string name="pref_danger_detection">宝宝危险检测</string>
-    <string name="pref_danger_detection_summary">检测逻辑与人物移动检测相同</string>
+    <string name="pref_sleep_detection">睡眠检测</string>
+    <string name="pref_sleep_detection_summary">AI面部识别闭眼检测</string>
     <string name="pref_category_recording">录像</string>
     <string name="pref_save_duration">触发保存时长(前后)</string>
     <string name="pref_save_duration_summary">前后各 %1$d 秒</string>

@@ -217,7 +217,8 @@ class MainActivity : AppCompatActivity() {
                 val label = when (eventType) {
                     "motion" -> getString(R.string.event_motion)
                     "cry" -> getString(R.string.event_cry)
-                    "danger" -> getString(R.string.event_danger)
+                    "sleep" -> getString(R.string.event_sleep)
+                    "wake_up" -> getString(R.string.event_wake_up)
                     else -> eventType
                 }
                 latestEvent.text = "$time $label"

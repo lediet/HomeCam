@@ -10,6 +10,8 @@ import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
+import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
+import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
 import com.homecam.app.service.AppSettings
 import org.tensorflow.lite.task.audio.classifier.AudioClassifier
 import org.tensorflow.lite.support.audio.TensorAudio
@@ -50,6 +52,34 @@ class EventDetector(
 
     private val animalLabels = setOf("cat", "dog", "bird")
 
+    // Sleep detection via FaceLandmarker
+    private var faceLandmarker: FaceLandmarker? = null
+    private var sleepState = SleepState.AWAKE
+    private var closedEyeFrameCount = 0
+    private var consecutiveOpenFrames = 0
+    private var lastSleepAnalyzeTime = 0L
+    private val sleepAnalyzeInterval = 1000L // 1 second between detections
+    private var lastSleepTriggerTime = 0L
+    private var lastWakeUpTriggerTime = 0L
+    private val sleepCooldownMs = 10000L
+
+    // Eye landmarks indices (MediaPipe 478-point face mesh)
+    // Right eye: [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246]
+    // Left eye: [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398]
+    // EAR landmarks: eye corners [33, 133] right, [362, 263] left
+    // Upper eyelid [159, 158, 157, 173] right, [386, 387, 388, 466] left
+    // Lower eyelid [145, 144, 163, 7] right, [374, 380, 381, 382] left
+    // For EAR calculation we use: p1=left corner, p2=top-left, p3=top-right, p4=right corner, p5=bottom-right, p6=bottom-left
+    // Right eye indices for EAR: 33(left), 159(top-left), 158(top-right), 133(right), 153(bottom-right), 145(bottom-left)
+    // Left eye indices for EAR: 362(left), 386(top-left), 385(top-right), 263(right), 374(bottom-right), 380(bottom-left)
+    private val RIGHT_EYE_IDX = intArrayOf(33, 159, 158, 133, 153, 145)
+    private val LEFT_EYE_IDX = intArrayOf(362, 386, 385, 263, 374, 380)
+    private val SLEEP_EAR_THRESHOLD = 0.22f
+    private val SLEEP_CLOSED_FRAMES = 5   // N consecutive closed-eye detections (at 1/sec) -> sleep
+    private val AWAKE_OPEN_FRAMES = 5     // consecutive open-eye detections (at 1/sec) while sleeping -> wake_up
+
+    enum class SleepState { AWAKE, SLEEPING }
+
     fun initVisualDetector() {
         Log.d(TAG, "initVisualDetector() start")
         try {
@@ -82,8 +112,7 @@ class EventDetector(
     }
 
     fun analyzeFrame(bitmap: Bitmap, @Suppress("UNUSED_PARAMETER") timestamp: Long) {
-        if (!AppSettings.isMotionDetectionEnabled(context) &&
-            !AppSettings.isDangerDetectionEnabled(context)) return
+        if (!AppSettings.isMotionDetectionEnabled(context)) return
 
         frameCounter++
         val interval = AppSettings.getDetectionIntervalFrames(context)
@@ -129,9 +158,7 @@ class EventDetector(
                             if (AppSettings.isMotionDetectionEnabled(context)) {
                                 onEventDetected("motion")
                             }
-                            if (isPerson && AppSettings.isDangerDetectionEnabled(context)) {
-                                onEventDetected("danger")
-                            }
+    
                         }
                     }
                 }
@@ -146,6 +173,105 @@ class EventDetector(
     fun applyDetectionOverlay(bitmap: Bitmap) {
         val rect = lastBoxRect ?: return
         drawDetection(bitmap, rect, lastBoxLabel ?: "person", lastBoxScore)
+    }
+
+    fun initSleepDetector() {
+        Log.d(TAG, "initSleepDetector() start")
+        try {
+            val baseOptions = BaseOptions.builder()
+                .setModelAssetPath("face_landmarker.task")
+                .build()
+            val options = FaceLandmarker.FaceLandmarkerOptions.builder()
+                .setBaseOptions(baseOptions)
+                .setRunningMode(RunningMode.IMAGE)
+                .build()
+            faceLandmarker = FaceLandmarker.createFromOptions(context, options)
+            Log.d(TAG, "initSleepDetector() success")
+        } catch (e: Exception) {
+            Log.e(TAG, "initSleepDetector() FAILED - model file missing", e)
+        }
+    }
+
+    private fun onFaceLandmarkResult(result: FaceLandmarkerResult) {
+        if (result.faceLandmarks().isEmpty()) return
+
+        val landmarks = result.faceLandmarks()[0]
+        val rightEAR = computeEAR(landmarks, RIGHT_EYE_IDX)
+        val leftEAR = computeEAR(landmarks, LEFT_EYE_IDX)
+
+        val bothEyesClosed = (rightEAR < SLEEP_EAR_THRESHOLD) && (leftEAR < SLEEP_EAR_THRESHOLD)
+        val anyEyeOpen = (rightEAR >= SLEEP_EAR_THRESHOLD) || (leftEAR >= SLEEP_EAR_THRESHOLD)
+
+        when (sleepState) {
+            SleepState.AWAKE -> {
+                if (bothEyesClosed) {
+                    closedEyeFrameCount++
+                    if (closedEyeFrameCount >= SLEEP_CLOSED_FRAMES) {
+                        sleepState = SleepState.SLEEPING
+                        closedEyeFrameCount = 0
+                        if (System.currentTimeMillis() - lastSleepTriggerTime > sleepCooldownMs) {
+                            lastSleepTriggerTime = System.currentTimeMillis()
+                            onEventDetected("sleep")
+                        }
+                    }
+                } else {
+                    closedEyeFrameCount = 0
+                }
+            }
+            SleepState.SLEEPING -> {
+                if (anyEyeOpen) {
+                    consecutiveOpenFrames++
+                    if (consecutiveOpenFrames >= AWAKE_OPEN_FRAMES) {
+                        sleepState = SleepState.AWAKE
+                        consecutiveOpenFrames = 0
+                        if (System.currentTimeMillis() - lastWakeUpTriggerTime > sleepCooldownMs) {
+                            lastWakeUpTriggerTime = System.currentTimeMillis()
+                            onEventDetected("wake_up")
+                        }
+                    }
+                } else {
+                    consecutiveOpenFrames = 0
+                }
+            }
+        }
+    }
+
+    /** EAR (Eye Aspect Ratio) = (|p2-p6| + |p3-p5|) / (2 * |p1-p4|) */
+    private fun computeEAR(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>, eyeIdx: IntArray): Float {
+        val p1 = landmarks[eyeIdx[0]]
+        val p2 = landmarks[eyeIdx[1]]
+        val p3 = landmarks[eyeIdx[2]]
+        val p4 = landmarks[eyeIdx[3]]
+        val p5 = landmarks[eyeIdx[4]]
+        val p6 = landmarks[eyeIdx[5]]
+
+        val vert1 = dist(p2, p6)
+        val vert2 = dist(p3, p5)
+        val horiz = dist(p1, p4)
+
+        return (vert1 + vert2) / (2.0f * horiz)
+    }
+
+    private fun dist(a: com.google.mediapipe.tasks.components.containers.NormalizedLandmark,
+                     b: com.google.mediapipe.tasks.components.containers.NormalizedLandmark): Float {
+        val dx = a.x() - b.x()
+        val dy = a.y() - b.y()
+        return kotlin.math.sqrt(dx * dx + dy * dy)
+    }
+
+    /** Run sleep detection on the given bitmap (throttled to 1 detection/sec) */
+    fun analyzeSleep(bitmap: Bitmap) {
+        val now = System.currentTimeMillis()
+        if (now - lastSleepAnalyzeTime < sleepAnalyzeInterval) return
+        lastSleepAnalyzeTime = now
+        val detector = faceLandmarker ?: return
+        try {
+            val mpImage = com.google.mediapipe.framework.image.BitmapImageBuilder(bitmap).build()
+            val result = detector.detect(mpImage)
+            onFaceLandmarkResult(result)
+        } catch (e: Exception) {
+            Log.e(TAG, "analyzeSleep error", e)
+        }
     }
 
     fun startAudioDetection() {
@@ -265,5 +391,7 @@ class EventDetector(
         objectDetector = null
         try { audioClassifier?.close() } catch (_: Exception) {}
         audioClassifier = null
+        try { faceLandmarker?.close() } catch (_: Exception) {}
+        faceLandmarker = null
     }
 }

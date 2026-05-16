@@ -1,8 +1,8 @@
 # HomeCam v1.0 工作记录与技术文档
 
 **最后更新**：2026-05-16  
-**版本**：1.3.0  
-**状态**：正常运行，AI 事件检测已修复，录像稳定性提升，支持逻辑多摄组切换，支持 Web 端摄像头切换和电源控制
+**版本**：1.3.1  
+**状态**：v1.3.1 新增 AI 睡眠检测（MediaPipe FaceLandmarker 闭眼识别），UI 文字优化
 
 ---
 
@@ -1135,4 +1135,52 @@ implementation("androidx.camera:camera-core:$cameraxVersion")
 
 ---
 
-*文档结束 — HomeCam v1.3.0 工作记录*
+
+### v1.3.1 (2026-05-16)
+
+#### 新增
+
+- **AI 睡眠检测**：基于 MediaPipe FaceLandmarker 面部特征点模型，通过 Eye Aspect Ratio (EAR) 计算睁闭眼状态
+  - 连续 15 帧闭眼（约 3 秒，15fps+每3帧检测）→ 触发「宝宝睡着了」事件
+  - 睡眠状态中连续 5 帧睁眼 → 触发「宝宝睡醒了」事件
+  - 事件间隔冷却 10 秒，防止重复触发
+  - 状态机：AWAKE ↔ SLEEPING，滞回逻辑避免状态抖动
+- **模型文件**：需下载 `face_landmarker.task` 放置于 `app/src/main/assets/` 目录
+  - 下载地址：`https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task`
+
+#### 变更
+
+- **UI 文字更改**：
+  - 「智能检测」→「AI检测」
+  - 「宝宝危险检测」→「睡眠检测」
+  - 添加「宝宝睡着了」「宝宝睡醒了」事件显示文字
+- **设置项**：`danger_detection` → `sleep_detection`（SharedPreferences key 变更）
+- **API `/api/status`**：检测模式字段 `danger` → `sleep`
+
+#### 修复
+
+- **音频检测 buffer**：YAMNet 音频循环改为完整读取 15600 采样点后再分类，修复之前每次仅读取 ~1600 样本导致识别不准的问题
+- **日志统一**：`EventDetector.kt` 中 `e.printStackTrace()` → `Log.e(TAG, ...)`
+
+#### 技术调整
+
+- `detection/EventDetector.kt`：
+  - 新增 `FaceLandmarker` 初始化和闭眼检测方法（`initSleepDetector()`、`analyzeSleep()`、`onFaceLandmarkResult()`）
+  - 状态机：`SleepState` 枚举（AWAKE/SLEEPING）
+  - EAR 计算公式：`(|p2-p6| + |p3-p5|) / (2 * |p1-p4|)`，闭眼阈值 0.22
+  - 右眼特征点索引：`[33, 159, 158, 133, 153, 145]`
+  - 左眼特征点索引：`[362, 386, 385, 263, 374, 380]`
+- `service/CameraService.kt`：
+  - 帧处理路径（CameraX + Camera2）添加 `analyzeSleep()` 调用
+  - `initDetectors()` 添加 `initSleepDetector()` 调用
+  - Notification 标签添加 `wake_up` 事件
+- `service/AppSettings.kt`：`isDangerDetectionEnabled()` → `isSleepDetectionEnabled()`
+- `ui/SettingsActivity.kt`：`danger_detection` → `sleep_detection`
+- `web/CamWebServer.kt`：API 状态响应字段更新
+- `assets/web/app.js`：事件类型标签和图标添加 sleep/wake_up
+- `res/values/strings.xml`：新增 `pref_sleep_detection`、`event_sleep`、`event_wake_up` 字符串
+- 版本号保持不变（versionCode = 6, versionName = "1.3.0"，未发布）
+
+---
+
+*文档结束 — HomeCam v1.3.1 工作记录*

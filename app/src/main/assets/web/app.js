@@ -158,7 +158,7 @@
                 }
                 if (data.latest_event) {
                     const time = new Date(data.latest_event_time).toLocaleTimeString('zh-CN');
-                    const typeLabel = {motion: '人物移动', cry: '婴儿哭声', danger: '危险检测'}[data.latest_event] || data.latest_event;
+                    const typeLabel = {motion: '人物移动', cry: '婴儿哭声', sleep: '宝宝睡着了', wake_up: '宝宝睡醒了'}[data.latest_event] || data.latest_event;
                     latestEvent.textContent = time + ' ' + typeLabel;
                 }
                 // Sync power state from status
@@ -198,8 +198,8 @@
                 videoList.innerHTML = videos.map(v => {
                     const time = new Date(v.timestamp).toLocaleTimeString('zh-CN');
                     const date = new Date(v.timestamp).toLocaleDateString('zh-CN');
-                    const icon = {motion: '👤', cry: '🔊', danger: '⚠️'}[v.eventType] || '📁';
-                    const typeLabel = {motion: '人物移动', cry: '婴儿哭声', danger: '危险检测'}[v.eventType] || v.eventType;
+                    const icon = {motion: '👤', cry: '🔊', sleep: '💤', wake_up: '😴'}[v.eventType] || '📁';
+                    const typeLabel = {motion: '人物移动', cry: '婴儿哭声', sleep: '宝宝睡着了', wake_up: '宝宝睡醒了'}[v.eventType] || v.eventType;
                     const size = (v.fileSize / 1024 / 1024).toFixed(1);
 
                     return `<div class="video-item" data-url="${v.url}" data-filename="${v.fileName}">

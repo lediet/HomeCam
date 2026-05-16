@@ -576,9 +576,11 @@ class CameraService : LifecycleService() {
 
             val timestamp = System.currentTimeMillis()
 
-            if (AppSettings.isMotionDetectionEnabled(this) ||
-                AppSettings.isDangerDetectionEnabled(this)) {
+            if (AppSettings.isMotionDetectionEnabled(this)) {
                 eventDetector.analyzeFrame(scaledBitmap, timestamp)
+            }
+            if (AppSettings.isSleepDetectionEnabled(this)) {
+                eventDetector.analyzeSleep(scaledBitmap)
             }
 
             eventDetector.applyDetectionOverlay(scaledBitmap)
@@ -648,9 +650,11 @@ class CameraService : LifecycleService() {
 
             val timestamp = System.currentTimeMillis()
 
-            if (AppSettings.isMotionDetectionEnabled(this) ||
-                AppSettings.isDangerDetectionEnabled(this)) {
+            if (AppSettings.isMotionDetectionEnabled(this)) {
                 eventDetector.analyzeFrame(scaledBitmap, timestamp)
+            }
+            if (AppSettings.isSleepDetectionEnabled(this)) {
+                eventDetector.analyzeSleep(scaledBitmap)
             }
 
             // Persist detection overlay (bounding box) on every frame
@@ -734,7 +738,8 @@ class CameraService : LifecycleService() {
         val label = when (eventType) {
             "motion" -> getString(R.string.event_motion)
             "cry" -> getString(R.string.event_cry)
-            "danger" -> getString(R.string.event_danger)
+            "sleep" -> getString(R.string.event_sleep)
+            "wake_up" -> getString(R.string.event_wake_up)
             else -> getString(R.string.event_unknown)
         }
 
@@ -759,11 +764,15 @@ class CameraService : LifecycleService() {
     }
 
     private fun initDetectors() {
-        if (AppSettings.isMotionDetectionEnabled(this) ||
-            AppSettings.isDangerDetectionEnabled(this)) {
+        if (AppSettings.isMotionDetectionEnabled(this)) {
             Log.d(TAG, "Initializing visual detector...")
             eventDetector.initVisualDetector()
             Log.d(TAG, "Visual detector initialized")
+        }
+        if (AppSettings.isSleepDetectionEnabled(this)) {
+            Log.d(TAG, "Initializing sleep detector...")
+            eventDetector.initSleepDetector()
+            Log.d(TAG, "Sleep detector initialized")
         }
         if (AppSettings.isCryDetectionEnabled(this)) {
             Log.d(TAG, "Initializing audio detector...")

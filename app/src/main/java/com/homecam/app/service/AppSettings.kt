@@ -53,8 +53,8 @@ object AppSettings {
     fun isCryDetectionEnabled(context: Context): Boolean =
         prefs(context).getBoolean("cry_detection", false)
 
-    fun isDangerDetectionEnabled(context: Context): Boolean =
-        prefs(context).getBoolean("danger_detection", false)
+    fun isSleepDetectionEnabled(context: Context): Boolean =
+        prefs(context).getBoolean("sleep_detection", false)
 
     fun getSaveDurationSec(context: Context): Int {
         return prefs(context).getInt("save_duration", 3)

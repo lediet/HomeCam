@@ -124,13 +124,13 @@ class SettingsActivity : AppCompatActivity() {
             }
             detectionCategory.addPreference(cryDetection)
 
-            val dangerDetection = androidx.preference.SwitchPreferenceCompat(context).apply {
-                key = "danger_detection"
-                title = getString(R.string.pref_danger_detection)
-                summary = getString(R.string.pref_danger_detection_summary)
+            val sleepDetection = androidx.preference.SwitchPreferenceCompat(context).apply {
+                key = "sleep_detection"
+                title = getString(R.string.pref_sleep_detection)
+                summary = getString(R.string.pref_sleep_detection_summary)
                 setDefaultValue(false)
             }
-            detectionCategory.addPreference(dangerDetection)
+            detectionCategory.addPreference(sleepDetection)
 
             // Recording category
             val recordingCategory = androidx.preference.PreferenceCategory(context).apply {
