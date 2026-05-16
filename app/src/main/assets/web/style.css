@@ -136,6 +136,43 @@ nav {
     text-align: right;
 }
 
+.power-btn {
+    width: 36px;
+    height: 36px;
+    border: none;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--text);
+    font-size: 1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.power-btn:hover {
+    background: var(--highlight);
+}
+
+.power-btn.on {
+    background: #4caf50;
+    color: white;
+}
+
+.power-btn.off {
+    background: #f44336;
+    color: white;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(244,67,54,0.4); }
+    70% { box-shadow: 0 0 0 8px rgba(244,67,54,0); }
+    100% { box-shadow: 0 0 0 0 rgba(244,67,54,0); }
+}
+
 .event-bar {
     display: flex;
     align-items: center;

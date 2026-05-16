@@ -30,6 +30,7 @@ class CamWebServer(
             uri == "/video" -> serveMjpegStream()
             uri == "/api/cameras" -> serveCameraList()
             uri == "/api/camera/switch" -> serveCameraSwitch(session)
+            uri == "/api/camera/power" -> serveCameraPower(session)
             uri == "/api/status" -> serveStatus()
             uri == "/api/events" -> serveEvents()
             uri == "/api/videos" -> serveVideoList()
@@ -79,7 +80,8 @@ class CamWebServer(
             "latest_event" to CameraService.latestEventType,
             "latest_event_time" to CameraService.latestEventTime,
             "current_camera_id" to AppSettings.getCameraId(context),
-            "current_logical_camera_id" to AppSettings.getLogicalCameraId(context)
+            "current_logical_camera_id" to AppSettings.getLogicalCameraId(context),
+            "camera_powered" to CameraService.cameraPoweredOn.get()
         )
 
         return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(status))
@@ -219,6 +221,34 @@ class CamWebServer(
             val errorResult = mapOf("success" to false, "error" to (e.message ?: "Unknown error"))
             newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json", gson.toJson(errorResult))
         }
+    }
+
+    private fun serveCameraPower(session: IHTTPSession): Response {
+        val action = session.parms["action"]
+        if (action != "on" && action != "off") {
+            return newFixedLengthResponse(
+                Response.Status.BAD_REQUEST, "application/json",
+                gson.toJson(mapOf("success" to false, "error" to "Missing or invalid action (must be 'on' or 'off')"))
+            )
+        }
+
+        val powerOn = action == "on"
+        CameraService.cameraPoweredOn.set(powerOn)
+
+        val service = ServiceManager.instance
+        if (service != null) {
+            val intent = Intent(context, CameraService::class.java).apply {
+                setAction(CameraService.ACTION_CAMERA_POWER)
+                putExtra("power_on", powerOn)
+            }
+            context.startService(intent)
+        }
+
+        val result = mapOf(
+            "success" to true,
+            "power" to powerOn
+        )
+        return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(result))
     }
 
     private fun getLocalIpAddress(): String {

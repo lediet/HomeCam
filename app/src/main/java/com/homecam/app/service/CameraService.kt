@@ -47,9 +47,11 @@ class CameraService : LifecycleService() {
         const val ACTION_START = "com.homecam.app.START"
         const val ACTION_STOP = "com.homecam.app.STOP"
         const val ACTION_SWITCH_CAMERA = "com.homecam.app.SWITCH_CAMERA"
+        const val ACTION_CAMERA_POWER = "com.homecam.app.CAMERA_POWER"
         const val ACTION_STATE_CHANGED = "com.homecam.app.STATE_CHANGED"
 
         val isRunning = AtomicBoolean(false)
+        val cameraPoweredOn = AtomicBoolean(true)
         @Volatile
         var latestEventType: String? = null
         @Volatile
@@ -119,6 +121,26 @@ class CameraService : LifecycleService() {
                 stopSelf()
                 return START_NOT_STICKY
             }
+            ACTION_CAMERA_POWER -> {
+                val powerOn = intent.getBooleanExtra("power_on", true)
+                Log.d(TAG, "ACTION_CAMERA_POWER received: powerOn=$powerOn")
+                try {
+                    if (powerOn) {
+                        cameraPoweredOn.set(true)
+                        initCamera()
+                    } else {
+                        cameraPoweredOn.set(false)
+                        closeCamera2()
+                        cameraProvider?.unbindAll()
+                        streamer.clear()
+                    }
+                    Log.d(TAG, "Camera power ${if (powerOn) "on" else "off"} done")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Camera power switch FAILED", e)
+                }
+                sendBroadcast(Intent(ACTION_STATE_CHANGED))
+                return START_STICKY
+            }
             ACTION_SWITCH_CAMERA -> {
                 Log.d(TAG, "ACTION_SWITCH_CAMERA received")
                 try {
@@ -149,7 +171,7 @@ class CameraService : LifecycleService() {
         try { acquireWakeLock(); Log.d(TAG, "wakeLock acquired") }
         catch (e: Exception) { Log.e(TAG, "acquireWakeLock FAILED", e) }
 
-        try { initCamera(); Log.d(TAG, "initCamera() called") }
+        try { if (cameraPoweredOn.get()) { initCamera(); Log.d(TAG, "initCamera() called") } else { Log.d(TAG, "cameraPoweredOn=false, skipping initCamera") } }
         catch (e: Exception) { Log.e(TAG, "initCamera FAILED", e) }
 
         try { initDetectors(); Log.d(TAG, "initDetectors() done") }

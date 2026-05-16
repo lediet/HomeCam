@@ -10,9 +10,11 @@
     const closePlayer = document.getElementById('close-player');
     const cameraDropdown = document.getElementById('camera-dropdown');
     const cameraStatus = document.getElementById('camera-status');
+    const powerToggle = document.getElementById('power-toggle');
 
     let currentCameraId = '';
     let isSwitchingCamera = false;
+    let cameraPowered = true;
 
     // Tab switching
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -106,6 +108,45 @@
         });
     });
 
+    // Power toggle
+    powerToggle.addEventListener('click', function() {
+        const newState = !cameraPowered;
+        const action = newState ? 'on' : 'off';
+        powerToggle.disabled = true;
+
+        fetch('/api/camera/power?action=' + action)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                cameraPowered = data.power;
+                updatePowerButton();
+                if (cameraPowered) {
+                    liveStream.src = '/video?t=' + Date.now();
+                } else {
+                    liveStream.src = '';
+                    streamStatus.textContent = '摄像头已关闭';
+                    streamStatus.style.color = '#f44336';
+                }
+            }
+        })
+        .catch(() => {})
+        .finally(() => {
+            powerToggle.disabled = false;
+        });
+    });
+
+    function updatePowerButton() {
+        if (cameraPowered) {
+            powerToggle.className = 'power-btn on';
+            powerToggle.textContent = '\u26A1';
+            powerToggle.title = '关闭摄像头';
+        } else {
+            powerToggle.className = 'power-btn off';
+            powerToggle.textContent = '\u26A0';
+            powerToggle.title = '打开摄像头';
+        }
+    }
+
     // Load status periodically
     function updateStatus() {
         fetch('/api/status')
@@ -120,6 +161,11 @@
                     const typeLabel = {motion: '人物移动', cry: '婴儿哭声', danger: '危险检测'}[data.latest_event] || data.latest_event;
                     latestEvent.textContent = time + ' ' + typeLabel;
                 }
+                // Sync power state from status
+                if (data.camera_powered !== undefined && data.camera_powered !== cameraPowered) {
+                    cameraPowered = data.camera_powered;
+                    updatePowerButton();
+                }
                 // Sync current camera from status
                 if (data.current_camera_id && data.current_camera_id !== currentCameraId) {
                     currentCameraId = data.current_camera_id;
@@ -131,6 +177,9 @@
 
     setInterval(updateStatus, 5000);
     updateStatus();
+
+    // Initialize power button
+    updatePowerButton();
 
     // Load camera list periodically
     loadCameraList();
