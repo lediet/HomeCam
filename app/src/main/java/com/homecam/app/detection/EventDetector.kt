@@ -48,6 +48,8 @@ class EventDetector(
 
     private val cryLabels = setOf("Crying", "Crying, sobbing", "Baby cry, infant cry", "Sobbing")
 
+    private val animalLabels = setOf("cat", "dog", "bird")
+
     fun initVisualDetector() {
         Log.d(TAG, "initVisualDetector() start")
         try {
@@ -108,7 +110,12 @@ class EventDetector(
                     val categoryName = category.categoryName()
                     val score = category.score()
 
-                    if (categoryName.equals("person", ignoreCase = true) && score > 0.5f) {
+                    if (score <= 0.5f) continue
+
+                    val isPerson = categoryName.equals("person", ignoreCase = true)
+                    val isAnimal = animalLabels.any { categoryName.equals(it, ignoreCase = true) }
+
+                    if (isPerson || isAnimal) {
                         if (!personFound) {
                             lastBoxRect = detection.boundingBox()
                             lastBoxLabel = categoryName
@@ -122,7 +129,7 @@ class EventDetector(
                             if (AppSettings.isMotionDetectionEnabled(context)) {
                                 onEventDetected("motion")
                             }
-                            if (AppSettings.isDangerDetectionEnabled(context)) {
+                            if (isPerson && AppSettings.isDangerDetectionEnabled(context)) {
                                 onEventDetected("danger")
                             }
                         }
@@ -153,10 +160,11 @@ class EventDetector(
             val channelConfig = AudioFormat.CHANNEL_IN_MONO
             val audioFormat = AudioFormat.ENCODING_PCM_16BIT
 
-            val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
-            if (bufferSize == AudioRecord.ERROR_BAD_VALUE) return
+            val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
+            if (minBufferSize == AudioRecord.ERROR_BAD_VALUE) return
 
-            val recordingBufferSize = bufferSize * 2
+            val modelInputSize = tensorAudio.getTensorBuffer().flatSize
+            val recordingBufferSize = maxOf(minBufferSize * 2, modelInputSize)
             audioRecord = AudioRecord(
                 MediaRecorder.AudioSource.MIC,
                 sampleRate, channelConfig, audioFormat, recordingBufferSize
@@ -165,15 +173,23 @@ class EventDetector(
             isAudioRunning = true
 
             audioThread = Thread {
-                val audioBuffer = ShortArray(bufferSize)
+                val audioBuffer = ShortArray(modelInputSize)
 
                 while (isAudioRunning) {
-                    val read = audioRecord?.read(audioBuffer, 0, audioBuffer.size) ?: 0
-                    if (read <= 0) continue
+                    // 读取完整的模型输入长度（15600采样点 = 0.975秒）
+                    var totalRead = 0
+                    while (totalRead < modelInputSize) {
+                        val read = audioRecord?.read(audioBuffer, totalRead, modelInputSize - totalRead) ?: -1
+                        if (read <= 0) {
+                            totalRead = 0
+                            break
+                        }
+                        totalRead += read
+                    }
+                    if (totalRead < modelInputSize) continue
 
-                    val shortArray = audioBuffer.copyOf(read)
                     try {
-                        tensorAudio.load(shortArray)
+                        tensorAudio.load(audioBuffer)
                         val results = classifier.classify(tensorAudio)
 
                         if (results.isNotEmpty()) {
@@ -188,12 +204,12 @@ class EventDetector(
                             }
                         }
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        Log.e(TAG, "Audio classify error", e)
                     }
                 }
             }.also { it.start() }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "startAudioDetection() FAILED", e)
         }
     }
 
