@@ -234,6 +234,8 @@ class MainActivity : AppCompatActivity() {
                     "cry" -> getString(R.string.event_cry)
                     "sleep" -> getString(R.string.event_sleep)
                     "wake_up" -> getString(R.string.event_wake_up)
+                    "enter" -> getString(R.string.event_enter, CameraService.latestEventLabel.ifEmpty { "未知" })
+                    "leave" -> getString(R.string.event_leave, CameraService.latestEventLabel.ifEmpty { "未知" })
                     else -> eventType
                 }
                 latestEvent.text = "$time $label"
@@ -276,6 +278,8 @@ class MainActivity : AppCompatActivity() {
                 "cry" -> getString(R.string.event_cry)
                 "sleep" -> getString(R.string.event_sleep)
                 "wake_up" -> getString(R.string.event_wake_up)
+                "enter" -> getString(R.string.event_enter, record.label.ifEmpty { "未知" })
+                "leave" -> getString(R.string.event_leave, record.label.ifEmpty { "未知" })
                 else -> record.type
             }
             "$time $label"

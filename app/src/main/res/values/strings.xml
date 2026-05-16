@@ -18,6 +18,8 @@
     <string name="event_cry">婴儿哭声</string>
     <string name="event_sleep">宝宝睡着了</string>
     <string name="event_wake_up">宝宝睡醒了</string>
+    <string name="event_enter">有%1$s进入了</string>
+    <string name="event_leave">有%1$s离开了</string>
     <string name="event_unknown">未知事件</string>
     <string name="latest_event_label">最新事件</string>
     <string name="no_events">暂无事件</string>

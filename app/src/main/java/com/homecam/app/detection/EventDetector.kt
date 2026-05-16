@@ -80,6 +80,15 @@ class EventDetector(
 
     enum class SleepState { AWAKE, SLEEPING }
 
+    enum class OccupancyState { EMPTY, OCCUPIED }
+
+    private var occupancyState = OccupancyState.EMPTY
+    private var lastOccupiedTime = 0L
+    private val occupancyTimeoutMs = 30000L
+    @Volatile
+    var currentOccupantLabel: String = ""
+        private set
+
     fun initVisualDetector() {
         Log.d(TAG, "initVisualDetector() start")
         try {
@@ -134,6 +143,8 @@ class EventDetector(
             if (results == null) return
 
             var personFound = false
+            var detectedLabel = ""
+            val now = System.currentTimeMillis()
             for (detection in results.detections()) {
                 for (category in detection.categories()) {
                     val categoryName = category.categoryName()
@@ -150,16 +161,33 @@ class EventDetector(
                             lastBoxLabel = categoryName
                             lastBoxScore = score
                             personFound = true
+                            detectedLabel = categoryName
                         }
 
-                        if (System.currentTimeMillis() - lastMotionTriggerTime > cooldownMs) {
-                            lastMotionTriggerTime = System.currentTimeMillis()
-
-                            if (AppSettings.isMotionDetectionEnabled(context)) {
-                                onEventDetected("motion")
-                            }
-    
+                        // Fire "motion" for video recording (with cooldown)
+                        if (now - lastMotionTriggerTime > cooldownMs) {
+                            lastMotionTriggerTime = now
+                            onEventDetected("motion")
                         }
+                    }
+                }
+            }
+
+            // Occupancy state machine for enter/leave events
+            if (personFound) {
+                currentOccupantLabel = detectedLabel
+                lastOccupiedTime = now
+                if (occupancyState == OccupancyState.EMPTY) {
+                    // EMPTY -> OCCUPIED transition
+                    occupancyState = OccupancyState.OCCUPIED
+                    onEventDetected("enter")
+                }
+            } else {
+                if (occupancyState == OccupancyState.OCCUPIED) {
+                    // Check if timeout expired since last occupant seen
+                    if (now - lastOccupiedTime > occupancyTimeoutMs) {
+                        occupancyState = OccupancyState.EMPTY
+                        onEventDetected("leave")
                     }
                 }
             }

@@ -57,6 +57,8 @@ class CameraService : LifecycleService() {
         @Volatile
         var latestEventTime: Long = 0L
         @Volatile
+        var latestEventLabel: String = ""
+        @Volatile
         var latestDetectionMs: Long = 0L
         @Volatile
         var recordingEnabled: Boolean = true
@@ -67,7 +69,8 @@ class CameraService : LifecycleService() {
 
     data class EventRecord(
         val type: String,
-        val time: Long
+        val time: Long,
+        val label: String = ""
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -707,14 +710,21 @@ class CameraService : LifecycleService() {
         Log.d(TAG, "onEventDetected: $eventType")
         val now = System.currentTimeMillis()
 
-        // Always update event tracking regardless of recording state
-        latestEventType = eventType
-        latestEventTime = now
-        synchronized(eventHistory) {
-            eventHistory.add(EventRecord(eventType, now))
-            if (eventHistory.size > 1000) eventHistory.removeAt(0)
+        // "motion" events are for video recording only — not added to event log
+        if (eventType != "motion") {
+            val label = when (eventType) {
+                "enter", "leave" -> eventDetector.currentOccupantLabel
+                else -> ""
+            }
+            latestEventType = eventType
+            latestEventTime = now
+            latestEventLabel = label
+            synchronized(eventHistory) {
+                eventHistory.add(EventRecord(eventType, now, label))
+                if (eventHistory.size > 1000) eventHistory.removeAt(0)
+            }
+            sendBroadcast(Intent(ACTION_STATE_CHANGED))
         }
-        sendBroadcast(Intent(ACTION_STATE_CHANGED))
 
         if (!recordingEnabled) {
             Log.d(TAG, "Recording disabled, skipping video")
@@ -755,6 +765,8 @@ class CameraService : LifecycleService() {
             "cry" -> getString(R.string.event_cry)
             "sleep" -> getString(R.string.event_sleep)
             "wake_up" -> getString(R.string.event_wake_up)
+            "enter" -> getString(R.string.event_enter, latestEventLabel.ifEmpty { "未知" })
+            "leave" -> getString(R.string.event_leave, latestEventLabel.ifEmpty { "未知" })
             else -> getString(R.string.event_unknown)
         }
 

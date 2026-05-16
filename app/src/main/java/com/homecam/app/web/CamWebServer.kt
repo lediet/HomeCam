@@ -79,6 +79,7 @@ class CamWebServer(
             ),
             "latest_event" to CameraService.latestEventType,
             "latest_event_time" to CameraService.latestEventTime,
+            "latest_event_label" to CameraService.latestEventLabel,
             "current_camera_id" to AppSettings.getCameraId(context),
             "current_logical_camera_id" to AppSettings.getLogicalCameraId(context),
             "camera_powered" to CameraService.cameraPoweredOn.get()
@@ -92,7 +93,8 @@ class CamWebServer(
             CameraService.eventHistory.map { record ->
                 mapOf(
                     "type" to record.type,
-                    "time" to record.time
+                    "time" to record.time,
+                    "label" to record.label
                 )
             }
         }
