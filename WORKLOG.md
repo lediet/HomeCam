@@ -1,8 +1,8 @@
 # HomeCam v1.0 工作记录与技术文档
 
 **最后更新**：2026-05-15  
-**版本**：1.2.2  
-**状态**：正常运行，AI 事件检测已修复，录像稳定性提升，支持逻辑多摄组切换（小米11U超广角/长焦）
+**版本**：1.3.0  
+**状态**：正常运行，AI 事件检测已修复，录像稳定性提升，支持逻辑多摄组切换，支持 Web 端摄像头切换
 
 ---
 
@@ -1036,4 +1036,31 @@ implementation("androidx.camera:camera-core:$cameraxVersion")
 
 ---
 
-*文档结束 — HomeCam v1.2.2 工作记录*
+### v1.3.0 (2026-05-16)
+
+#### 新增
+
+1. **Web端摄像头切换** — 在 Web 管理页面可直接查看摄像头列表并切换摄像头，无需在手机端操作
+   - 新增 `GET /api/cameras` 端点，返回枚举到的所有摄像头信息（ID、逻辑ID、标签）
+   - 新增 `POST /api/camera/switch` 端点，接收 `cameraId` + `logicalCameraId` 参数，写入设置并发送切换指令
+   - 增强 `/api/status` 返回 `current_camera_id` / `current_logical_camera_id` 字段
+
+2. **Web前端摄像头选择器** — 直播标签页新增摄像头下拉菜单
+   - 加载页面时自动获取摄像头列表并填充下拉选项
+   - 选择摄像头后通过 POST 请求切换，成功后强制刷新 MJPEG 流
+   - 每 30 秒自动刷新摄像头列表，通过状态轮询同步外部变更
+   - 服务未运行时切换仅保存设置，下次启动生效
+
+#### 技术调整
+
+- 版本号：versionCode = 6, versionName = "1.3.0"
+- 新增 `service/CameraUtils.kt`，将 `CameraInfo` 和 `enumerateCameras()` 从 `MainActivity` 提取为共享工具类
+- `MainActivity.kt`：删除私有枚举方法，改用 `CameraUtils.enumerateCameras()`
+- `web/CamWebServer.kt`：新增 `/api/cameras`、`/api/camera/switch` 路由
+- `assets/web/index.html`：新增摄像头选择器 UI
+- `assets/web/style.css`：新增选择器样式
+- `assets/web/app.js`：新增摄像头列表加载、切换逻辑、流重连
+
+---
+
+*文档结束 — HomeCam v1.3.0 工作记录*

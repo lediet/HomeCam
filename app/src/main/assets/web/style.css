@@ -95,6 +95,47 @@ nav {
     color: #4caf50;
 }
 
+.camera-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--card);
+    border-radius: 8px;
+    margin-top: 12px;
+}
+
+.camera-selector select {
+    flex: 1;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.9rem;
+    outline: none;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.camera-selector select:focus {
+    border-color: var(--highlight);
+}
+
+.camera-selector select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.camera-status {
+    font-size: 0.8rem;
+    color: var(--highlight);
+    white-space: nowrap;
+    min-width: 50px;
+    text-align: right;
+}
+
 .event-bar {
     display: flex;
     align-items: center;

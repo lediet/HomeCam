@@ -1,10 +1,12 @@
 package com.homecam.app.web
 
 import android.content.Context
+import android.content.Intent
 import com.google.gson.Gson
 import com.homecam.app.HomeCamApp
 import com.homecam.app.service.AppSettings
 import com.homecam.app.service.CameraService
+import com.homecam.app.service.CameraUtils
 import com.homecam.app.service.ServiceManager
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.runBlocking
@@ -26,6 +28,8 @@ class CamWebServer(
             uri == "/style.css" -> serveAsset("web/style.css", "text/css")
             uri == "/app.js" -> serveAsset("web/app.js", "application/javascript")
             uri == "/video" -> serveMjpegStream()
+            uri == "/api/cameras" -> serveCameraList()
+            uri == "/api/camera/switch" -> serveCameraSwitch(session)
             uri == "/api/status" -> serveStatus()
             uri == "/api/events" -> serveEvents()
             uri == "/api/videos" -> serveVideoList()
@@ -73,7 +77,9 @@ class CamWebServer(
                 "danger" to AppSettings.isDangerDetectionEnabled(context)
             ),
             "latest_event" to CameraService.latestEventType,
-            "latest_event_time" to CameraService.latestEventTime
+            "latest_event_time" to CameraService.latestEventTime,
+            "current_camera_id" to AppSettings.getCameraId(context),
+            "current_logical_camera_id" to AppSettings.getLogicalCameraId(context)
         )
 
         return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(status))
@@ -143,6 +149,76 @@ class CamWebServer(
             Response.Status.OK, "image/jpeg",
             ByteArrayInputStream(frame.second), frame.second.size.toLong()
         )
+    }
+
+    private fun serveCameraList(): Response {
+        return try {
+            val cameras = CameraUtils.enumerateCameras(context)
+            val cameraList = cameras.map { camera ->
+                mapOf(
+                    "index" to camera.index,
+                    "cameraId" to camera.cameraId,
+                    "logicalCameraId" to camera.logicalCameraId,
+                    "label" to camera.label
+                )
+            }
+            val response = mapOf(
+                "cameras" to cameraList,
+                "currentCameraId" to AppSettings.getCameraId(context),
+                "currentLogicalCameraId" to AppSettings.getLogicalCameraId(context)
+            )
+            newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(response))
+        } catch (e: Exception) {
+            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Camera enumeration failed")
+        }
+    }
+
+    private fun serveCameraSwitch(session: IHTTPSession): Response {
+        return try {
+            val cameraId = session.parms["cameraId"] ?: return newFixedLengthResponse(
+                Response.Status.BAD_REQUEST, "application/json",
+                gson.toJson(mapOf("success" to false, "error" to "Missing cameraId"))
+            )
+            val logicalCameraId = session.parms["logicalCameraId"] ?: cameraId
+
+            val cameras = CameraUtils.enumerateCameras(context)
+            val match = cameras.find { it.cameraId == cameraId }
+            if (match == null) {
+                return newFixedLengthResponse(
+                    Response.Status.BAD_REQUEST, "application/json",
+                    gson.toJson(mapOf("success" to false, "error" to "Invalid cameraId: $cameraId"))
+                )
+            }
+
+            AppSettings.setCameraIndex(context, match.index)
+            AppSettings.setCameraId(context, cameraId)
+            AppSettings.setLogicalCameraId(context, logicalCameraId)
+
+            val service = ServiceManager.instance
+            val switching = if (service != null) {
+                val intent = Intent(context, CameraService::class.java).apply {
+                    action = CameraService.ACTION_SWITCH_CAMERA
+                }
+                context.startService(intent)
+                true
+            } else {
+                false
+            }
+
+            val result = mutableMapOf<String, Any>(
+                "success" to true,
+                "cameraId" to cameraId,
+                "switching" to switching
+            )
+            if (!switching) {
+                result["warning"] = "Service not running, settings saved"
+            }
+
+            newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(result))
+        } catch (e: Exception) {
+            val errorResult = mapOf("success" to false, "error" to (e.message ?: "Unknown error"))
+            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json", gson.toJson(errorResult))
+        }
     }
 
     private fun getLocalIpAddress(): String {

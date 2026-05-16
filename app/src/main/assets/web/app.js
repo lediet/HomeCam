@@ -8,6 +8,11 @@
     const videoPlayer = document.getElementById('video-player');
     const playback = document.getElementById('playback');
     const closePlayer = document.getElementById('close-player');
+    const cameraDropdown = document.getElementById('camera-dropdown');
+    const cameraStatus = document.getElementById('camera-status');
+
+    let currentCameraId = '';
+    let isSwitchingCamera = false;
 
     // Tab switching
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -44,6 +49,63 @@
         videoPlayer.classList.add('hidden');
     });
 
+    // Camera selector
+    function loadCameraList() {
+        fetch('/api/cameras')
+            .then(r => r.json())
+            .then(data => {
+                if (!data.cameras || data.cameras.length === 0) {
+                    cameraDropdown.innerHTML = '<option value="">无可用摄像头</option>';
+                    return;
+                }
+                const currentVal = cameraDropdown.value;
+                currentCameraId = data.currentCameraId || '';
+                cameraDropdown.innerHTML = data.cameras.map(cam =>
+                    `<option value="${cam.cameraId}" data-logical="${cam.logicalCameraId}">${cam.label}</option>`
+                ).join('');
+                cameraDropdown.value = currentCameraId;
+            })
+            .catch(() => {});
+    }
+
+    cameraDropdown.addEventListener('change', function() {
+        if (isSwitchingCamera) return;
+        const cameraId = this.value;
+        if (!cameraId || cameraId === currentCameraId) return;
+        const selected = this.options[this.selectedIndex];
+        const logicalCameraId = selected.dataset.logical || cameraId;
+
+        isSwitchingCamera = true;
+        this.disabled = true;
+        cameraStatus.textContent = '切换中...';
+
+        const params = new URLSearchParams();
+        params.append('cameraId', cameraId);
+        params.append('logicalCameraId', logicalCameraId);
+
+        fetch('/api/camera/switch?' + params.toString())
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                currentCameraId = cameraId;
+                liveStream.src = '/video?t=' + Date.now();
+                cameraStatus.textContent = data.switching ? '已切换' : '已保存';
+            } else {
+                cameraStatus.textContent = '失败';
+                cameraDropdown.value = currentCameraId;
+            }
+        })
+        .catch(() => {
+            cameraStatus.textContent = '网络错误';
+            cameraDropdown.value = currentCameraId;
+        })
+        .finally(() => {
+            isSwitchingCamera = false;
+            this.disabled = false;
+            setTimeout(() => { cameraStatus.textContent = ''; }, 3000);
+        });
+    });
+
     // Load status periodically
     function updateStatus() {
         fetch('/api/status')
@@ -58,12 +120,21 @@
                     const typeLabel = {motion: '人物移动', cry: '婴儿哭声', danger: '危险检测'}[data.latest_event] || data.latest_event;
                     latestEvent.textContent = time + ' ' + typeLabel;
                 }
+                // Sync current camera from status
+                if (data.current_camera_id && data.current_camera_id !== currentCameraId) {
+                    currentCameraId = data.current_camera_id;
+                    cameraDropdown.value = currentCameraId;
+                }
             })
             .catch(() => {});
     }
 
     setInterval(updateStatus, 5000);
     updateStatus();
+
+    // Load camera list periodically
+    loadCameraList();
+    setInterval(loadCameraList, 30000);
 
     // Load video list
     function loadVideoList() {
