@@ -1,8 +1,8 @@
 # HomeCam v1.0 工作记录与技术文档
 
-**最后更新**：2026-05-16  
+**最后更新**：2026-05-17  
 **版本**：1.3.2  
-**状态**：v1.3.2 修复事件日志不同步 Bug，新增手机端和 Web 端事件日志显示
+**状态**：v1.3.2 引入进出状态机，人物/动物检测改为「进入/离开」事件推送，新增 `enter`/`leave` 事件类型
 
 ---
 
@@ -190,6 +190,7 @@ app/src/main/res/
 | `isRunning` | `AtomicBoolean` | companion, public | 静态运行标志，供 UI 和 WebServer 读取 |
 | `latestEventType` | `String?` | companion, public | 最近事件类型 ("motion"/"cry"/"danger") |
 | `latestEventTime` | `Long` | companion, public | 最近事件时间戳 (ms) |
+| `latestEventLabel` | `String` | companion, public | 最近事件的识别标签 (enter/leave 时为 person/cat/dog 等) |
 | `streamer` | `MjpegStreamer` | public | MJPEG 流推送器 |
 | `frameBuffer` | `FrameBuffer` | public lateinit | 环形帧缓冲 |
 | `videoRecorder` | `VideoRecorder` | public lateinit | 录像保存器 |
@@ -376,15 +377,19 @@ V  = (112R - 94G - 18B + 128) >> 8 + 128
 | 运行模式 | `RunningMode.IMAGE` |
 | 置信度阈值 | 0.5 |
 | 最大检测数 | 3 |
-| 检测目标 | "person" 类别 |
-| 检测频率 | 每 3 帧 (15fps) / 每 5 帧 (30fps) |
-| 冷却时间 | 5000 ms |
+| 检测目标 | "person" 类别 + 动物 (cat/dog/bird) |
+| 检测频率 | 每 3-5 帧执行一次检测 |
+| 进出超时 | 30000 ms (30秒未检测到触发"离开事件") |
 
-触发逻辑：
+进出状态机（v1.3.2）：
 1. 每隔 N 帧执行一次检测
 2. 如果 `isProcessing = true`（上一帧还在处理），跳过
-3. 检测到 "person" 且 score > 0.5 → 触发回调
-4. 5 秒内同一类事件不重复触发
+3. 检测到 "person" / "cat" / "dog" / "bird" 且 score > 0.5 → 触发进出状态机
+4. 状态机触发逻辑：
+   - **EMPTY → OCCUPIED**：无人状态下突然检测到人/动物 → 触发 `"enter"` 事件，带识别标签 (person/cat/dog)
+   - **保持 OCCUPIED**：每次检测到人/动物 → 触发 `"motion"` 事件（5秒冷却），仅用于触发录像保存
+   - **OCCUPIED → EMPTY**：持续 30 秒未检测到人/动物 → 触发 `"leave"` 事件，带识别标签
+5. "motion" 事件不写入事件日志，仅控制录像保存
 
 #### 音频检测 (TFLite)
 
@@ -659,7 +664,7 @@ MJPEG 实时流。Content-Type: `multipart/x-mixed-replace; boundary=--boundary`
 |------|------|------|------|
 | fileName | TEXT | PRIMARY KEY | 文件名，格式 `HomeCam_{TYPE}_{yyyyMMdd_HHmmss}.mp4` |
 | timestamp | INTEGER | - | 事件时间戳 (毫秒) |
-| eventType | TEXT | - | 事件类型: "motion" / "cry" / "danger" |
+| eventType | TEXT | - | 事件类型: "motion" / "cry" / "enter" / "leave" / "sleep" / "wake_up" |
 | durationSec | INTEGER | - | 视频时长(秒) |
 | fileSize | INTEGER | - | 文件大小(字节) |
 
@@ -1198,6 +1203,46 @@ implementation("androidx.camera:camera-core:$cameraxVersion")
 - **Web 端事件日志**：历史视频列表改为显示最新 10 条
 - **`CameraService.eventHistory`**：新增 `EventRecord` 数据类，内存维护事件列表（上限 1000 条）
 - **`/api/events`**：返回所有事件记录（无数量限制）
+### v1.3.2 (2026-05-17) - 进出状态机
+
+#### 新增
+
+1. **人物移动检测状态机** — 从简单的"motion"触发改为基于进出状态机的事件推送
+   - 无人状态(EMPTY) → 检测到人/动物 → 触发 `"enter"` 事件，记录识别标签（如 "person" / "cat" / "dog"）
+   - 有人状态(OCCUPIED) → 持续 30 秒未检测到人/动物 → 触发 `"leave"` 事件，记录识别标签
+   - "motion" 事件仍在每次检测时触发（带 5 秒冷却），但**仅用于触发录像保存**，不再写入事件日志
+
+2. **EventRecord 新增 label 字段** — 用于存储 "enter"/"leave" 事件的识别标签
+   - 手机端显示：`有person进入了` / `有cat离开了`
+   - Web 端显示：`有person进入了` / `有cat离开了`
+
+3. **字符串资源更新** — 新增 `event_enter` / `event_leave` 字符串
+
+#### 事件类型完整列表
+
+| 事件类型 | 触发条件 | 显示文本 | 是否写入日志 | 是否触发录像 |
+|----------|---------|---------|:---:|:---:|
+| `enter` | 无人→有人/动物进入画面 | `有%1\$s进入了` | ✓ | ✓ |
+| `leave` | 有人/动物离开画面超过 30 秒 | `有%1\$s离开了` | ✓ | ✓ |
+| `motion` | 每次检测到人/动物（5秒冷却） | 不显示 | ✗ | ✓ |
+| `cry` | YAMNet 检测到婴儿哭声 | `婴儿哭声` | ✓ | ✓ |
+| `sleep` | FaceLandmarker 闭眼检测连续 5 帧 → 睡着 | `宝宝睡着了` | ✓ | ✓ |
+| `wake_up` | 睡眠状态中连续 5 帧睁眼 → 醒来 | `宝宝睡醒了` | ✓ | ✓ |
+
+#### 技术调整
+
+- `detection/EventDetector.kt`：
+  - 新增 `OccupancyState` 枚举（EMPTY/OCCUPIED）
+  - 新增 `occupancyState` / `lastOccupiedTime` / `currentOccupantLabel` / `occupancyTimeoutMs` 字段
+  - `analyzeFrame()` 新增进出状态机逻辑：EMPTY→OCCUPIED触发"enter"，OCCUPIED→EMPTY触发"leave"，保留"motion"用于录像
+- `service/CameraService.kt`：
+  - `EventRecord` 新增 `val label: String = ""` 字段
+  - 新增 `latestEventLabel` 字段
+  - `onEventDetected()` 过滤掉 "motion"，不写入 eventHistory
+  - `updateNotification()` 新增 enter/leave 显示支持
+- `web/CamWebServer.kt`：`/api/events` 返回 `label` 字段，`/api/status` 返回 `latest_event_label`
+- `ui/MainActivity.kt`：新增 enter/leave 事件类型映射，显示带标签的提示信息
+- `assets/web/app.js`：新增 enter/leave 事件显示支持
 
 ---
 
