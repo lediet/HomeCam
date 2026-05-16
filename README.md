@@ -15,6 +15,7 @@ HomeCam 是一款将闲置 Android 手机转化为局域网监控摄像头的应
   - **危险检测** — 检测到人物时触发告警
 - **事件录像** — 检测到事件时自动录制 MP4 视频，环形帧缓冲可回溯事件前数秒
   - **录像开关** — 运行时实时控制是否保存录像
+- **摄像头电源控制** — 通过 Web 管理页面远程开关摄像头，关闭时仅停止摄像头以降低功耗，Web 服务器持续运行
 - **内置 Web 管理界面** — 暗色主题 Web UI，支持实时画面、事件历史、视频回放和下载
 - **RESTful API** — 提供 JSON 接口供扩展集成
 
@@ -163,6 +164,9 @@ app/src/main/assets/
 | `/api/events` | GET | 最近 20 条事件记录 |
 | `/api/videos` | GET | 所有录像列表（含下载 URL） |
 | `/api/frame.jpg` | GET | 单帧 JPEG 快照 |
+| `/api/cameras` | GET | 枚举所有摄像头信息（ID、逻辑ID、标签） |
+| `/api/camera/switch` | GET | 切换摄像头（参数：cameraId + logicalCameraId） |
+| `/api/camera/power` | GET | 摄像头电源控制（参数：action=on|off） |
 | `/videos/{filename}` | GET | MP4 录像文件下载/播放 |
 
 ## 配置项
