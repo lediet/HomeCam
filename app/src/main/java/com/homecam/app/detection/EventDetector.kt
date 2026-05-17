@@ -89,6 +89,16 @@ class EventDetector(
     var currentOccupantLabel: String = ""
         private set
 
+    fun translateLabel(label: String): String {
+        return when (label.lowercase()) {
+            "person" -> "人"
+            "cat" -> "猫"
+            "dog" -> "狗"
+            "bird" -> "鸟"
+            else -> label
+        }
+    }
+
     fun initVisualDetector() {
         Log.d(TAG, "initVisualDetector() start")
         try {
@@ -175,7 +185,7 @@ class EventDetector(
 
             // Occupancy state machine for enter/leave events
             if (personFound) {
-                currentOccupantLabel = detectedLabel
+                currentOccupantLabel = translateLabel(detectedLabel)
                 lastOccupiedTime = now
                 if (occupancyState == OccupancyState.EMPTY) {
                     // EMPTY -> OCCUPIED transition

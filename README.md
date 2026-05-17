@@ -2,7 +2,7 @@
 
 [![Min SDK](https://img.shields.io/badge/minSdk-26-brightgreen)](https://developer.android.com/about/versions/oreo) [![Target SDK](https://img.shields.io/badge/targetSdk-34-blue)](https://developer.android.com/about/versions/14) [![Kotlin](https://img.shields.io/badge/language-Kotlin-purple)](https://kotlinlang.org/) [![License](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
 
-HomeCam 是一款将闲置 Android 手机转化为局域网监控摄像头的应用。它利用 CameraX 采集视频，通过 MJPEG 实时推流到浏览器，并内置 AI 事件检测（人物移动检测、婴儿哭声识别），支持事件触发自动录像回放。
+HomeCam 是一款将闲置 Android 手机转化为局域网监控摄像头的应用。它利用 CameraX 采集视频，通过 MJPEG 实时推流到浏览器，并内置 AI 事件检测（人物移动检测、婴儿哭声识别、睡眠检测），支持事件触发自动录像回放。
 
 ## 功能特性
 
@@ -15,6 +15,7 @@ HomeCam 是一款将闲置 Android 手机转化为局域网监控摄像头的应
   - 识别标签：person / cat / dog / bird
   - **婴儿哭声识别** — 基于 TensorFlow Lite YAMNet，识别婴儿哭声和哭泣声
   - **睡眠检测** — 基于 MediaPipe FaceLandmarker 面部特征点，通过 EAR 闭眼检测判断睡眠状态
+  - **事件类型**：enter（进入）/ leave（离开）/ cry（哭声）/ sleep（睡着）/ wake_up（醒来），每种事件均可独立触发报警和录像
 - **事件录像** — 检测到事件时自动录制 MP4 视频，环形帧缓冲可回溯事件前数秒
   - **录像开关** — 运行时实时控制是否保存录像
 - **摄像头电源控制** — 通过 Web 管理页面远程开关摄像头，关闭时仅停止摄像头以降低功耗，Web 服务器持续运行
@@ -75,6 +76,9 @@ cd homecam
    - 来源：[MediaPipe Model Zoo](https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float32/latest/efficientdet_lite0.tflite)
 2. **yamnet.tflite** — YAMNet 音频分类模型（已包含在仓库中）
    - 来源：[TensorFlow Hub](https://tfhub.dev/google/lite-model/yamnet/classification/tflite/1)
+3. **face_landmarker.task** — MediaPipe 面部特征点模型（v1.3.1 起需要）
+   - 来源：[MediaPipe Model Zoo](https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task)
+   - 用于睡眠检测：通过眼部特征点计算 EAR 值判断睁/闭眼状态
 
 ### 使用方式
 
@@ -163,14 +167,38 @@ app/src/main/assets/
 |------|------|------|
 | `/` | GET | Web 管理界面 |
 | `/video` | GET | MJPEG 实时视频流 |
-| `/api/status` | GET | 服务器状态（运行时间、帧率、事件计数等） |
-| `/api/events` | GET | 最近 20 条事件记录 |
+| `/api/status` | GET | 服务器状态（运行状态、IP、端口、检测模式、最新事件、当前摄像头、电源状态等） |
+| `/api/events` | GET | 全部事件记录（内存列表，上限 1000 条） |
 | `/api/videos` | GET | 所有录像列表（含下载 URL） |
 | `/api/frame.jpg` | GET | 单帧 JPEG 快照 |
 | `/api/cameras` | GET | 枚举所有摄像头信息（ID、逻辑ID、标签） |
 | `/api/camera/switch` | GET | 切换摄像头（参数：cameraId + logicalCameraId） |
 | `/api/camera/power` | GET | 摄像头电源控制（参数：action=on|off） |
 | `/videos/{filename}` | GET | MP4 录像文件下载/播放 |
+
+## 事件类型
+
+HomeCam 的事件系统基于进出状态机 + 独立检测器（音频/面部），事件类型如下：
+
+| 事件类型 | 触发条件 | 显示文本 | 写入日志 | 触发录像 |
+|----------|---------|---------|:---:|:---:|
+| `enter` | 无人→有人/动物进入画面 | `有person/cat/dog进入了` | ✓ | ✓ |
+| `leave` | 有人/动物离开画面超过 30 秒 | `有person/cat/dog离开了` | ✓ | ✓ |
+| `motion` | 每次检测到人/动物（5秒冷却，仅供录像触发） | 不显示 | ✗ | ✓ |
+| `cry` | YAMNet 检测到婴儿哭声 | `婴儿哭声` | ✓ | ✓ |
+| `sleep` | FaceLandmarker 连续 15 帧闭眼 | `宝宝睡着了` | ✓ | ✓ |
+| `wake_up` | 睡眠状态中连续 5 帧睁眼 | `宝宝睡醒了` | ✓ | ✓ |
+
+### 进出状态机（人物移动检测）
+
+状态：`EMPTY` ↔ `OCCUPIED`，超时 30 秒
+
+1. EMPTY 状态下检测到人/动物（person/cat/dog/bird）→ 切换为 OCCUPIED，触发 `enter` 事件
+2. OCCUPIED 状态下每次检测到人/动物 → 触发 `motion` 事件（5秒冷却），仅用于触发录像
+3. OCCUPIED 状态下持续 30 秒未检测到人/动物 → 切换为 EMPTY，触发 `leave` 事件
+4. `motion` 事件不写入事件日志，仅用于控制录像保存
+
+`enter` 和 `leave` 事件携带识别标签（label），显示为如 `有person进入了`、`有cat离开了`。
 
 ## 配置项
 
@@ -197,9 +225,9 @@ app/src/main/assets/
 
 1. **部分设备 CameraX 兼容问题** — 极少数旧款手机的后置摄像头可能无法正常初始化
 2. **MIUI 隐藏物理摄像头** — 小米 11 Ultra 等 MIUI 设备会隐藏 `LOGICAL_MULTI_CAMERA` 能力，CameraX 仅检测到主摄和前置。v1.2.2 通过 Camera2 直接探测绕过此限制，超广角和长焦可正常使用
-2. **音频检测仅支持 16kHz 采样率** — YAMNet 模型要求固定输入格式
-3. **部分设备录像花屏** — 不同 SoC 硬件编码器对 YUV 格式敏感，v1.2.1 已修复（如遇问题请更新）
-4. **睡眠检测需要正面人脸** — FaceLandmarker 需要清晰的正脸图像，侧脸或遮挡时无法检测闭眼
+3. **音频检测仅支持 16kHz 采样率** — YAMNet 模型要求固定输入格式
+4. **部分设备录像花屏** — 不同 SoC 硬件编码器对 YUV 格式敏感，v1.2.1 已修复（如遇问题请更新）
+5. **睡眠检测需要正面人脸** — FaceLandmarker 需要清晰的正脸图像，侧脸或遮挡时无法检测闭眼
 
 ## 待开发功能
 
