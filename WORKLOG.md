@@ -1246,4 +1246,24 @@ implementation("androidx.camera:camera-core:$cameraxVersion")
 
 ---
 
-*文档结束 — HomeCam v1.3.2 工作记录*
+### v1.4.0 (2026-05-18) - UDP 自动发现
+
+#### 新增
+
+1. **UDP 自动发现服务** — 在 CamWebServer 中新增 UDP 监听线程
+   - 监听端口：45678 (UDP)
+   - 协议格式：请求 `HOMECAM_DISCOVER` → 响应 `HOMECAM_RESPONSE|{ 设备名 }|{ IP }|{ 端口 }|{ 设备 ID }`
+   - 设备名：`HomeCam-{ ANDROID_ID 后 6 位 }`
+   - 设备 ID：`Settings.Secure.ANDROID_ID`
+
+2. **UDP 生命周期管理** — 服务启动时启动监听，销毁时安全关闭
+
+#### 技术调整
+
+- `web/CamWebServer.kt`：新增 UDP 相关字段和方法
+- `service/CameraService.kt`：接入 UDP 生命周期
+- 版本号：versionCode = 7, versionName = "1.4.0"
+
+---
+
+*文档结束 — HomeCam v1.4.0 工作记录*

@@ -811,7 +811,10 @@ class CameraService : LifecycleService() {
 
     private fun startWebServer() {
         val port = AppSettings.getWebPort(this)
-        webServer = CamWebServer(this, port).also { it.start() }
+        webServer = CamWebServer(this, port).also {
+            it.start()
+            it.startUdpDiscovery()
+        }
         Log.d(TAG, "Web server started on port $port")
     }
 
@@ -826,6 +829,7 @@ class CameraService : LifecycleService() {
         try { cameraProvider?.unbindAll() } catch (_: Exception) {}
 
         eventDetector.release()
+        webServer?.stopUdpDiscovery()
         streamer.clear()
         webServer?.stop()
         wakeLock?.let { if (it.isHeld) it.release() }

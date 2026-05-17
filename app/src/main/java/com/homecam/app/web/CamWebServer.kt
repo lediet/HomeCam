@@ -2,6 +2,8 @@ package com.homecam.app.web
 
 import android.content.Context
 import android.content.Intent
+import android.provider.Settings
+import android.util.Log
 import com.google.gson.Gson
 import com.homecam.app.service.AppSettings
 import com.homecam.app.service.CameraService
@@ -12,13 +14,31 @@ import kotlinx.coroutines.runBlocking
 import fi.iki.elonen.NanoHTTPD
 import java.io.ByteArrayInputStream
 import java.io.FileInputStream
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
 
 class CamWebServer(
     private val context: Context,
     port: Int
 ) : NanoHTTPD(port) {
 
+    companion object {
+        private const val TAG = "CamWebServer"
+    }
+
     private val gson = Gson()
+    private var udpSocket: DatagramSocket? = null
+    private var udpThread: Thread? = null
+    private val udpPort = 45678
+    private val deviceId: String by lazy {
+        try {
+            android.provider.Settings.Secure.getString(
+                context.contentResolver,
+                android.provider.Settings.Secure.ANDROID_ID
+            )
+        } catch (e: Exception) { "unknown" }
+    }
 
     override fun serve(session: IHTTPSession): Response {
         val uri = session.uri ?: "/"
@@ -253,6 +273,61 @@ class CamWebServer(
         return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(result))
     }
 
+
+    fun startUdpDiscovery() {
+        try {
+            udpSocket = DatagramSocket(udpPort)
+            udpSocket?.broadcast = true
+            udpThread = Thread({ runUdpListener() }, "udp-discovery")
+            udpThread?.isDaemon = true
+            udpThread?.start()
+            Log.d(TAG, "UDP discovery listener started on port $udpPort")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start UDP discovery listener", e)
+        }
+    }
+
+    fun stopUdpDiscovery() {
+        udpThread?.interrupt()
+        udpThread = null
+        try { udpSocket?.close() } catch (_: Exception) {}
+        udpSocket = null
+        Log.d(TAG, "UDP discovery listener stopped")
+    }
+
+    private fun runUdpListener() {
+        val socket = udpSocket ?: return
+        val buffer = ByteArray(1024)
+        while (!Thread.currentThread().isInterrupted) {
+            try {
+                val packet = DatagramPacket(buffer, buffer.size)
+                socket.receive(packet)
+                val msg = String(packet.data, 0, packet.length, Charsets.UTF_8).trim()
+                if (msg == "HOMECAM_DISCOVER") {
+                    val ip = getLocalIpAddress()
+                    val port = AppSettings.getWebPort(context)
+                    val name = "HomeCam-" + deviceId.takeLast(6)
+                    val response = "HOMECAM_RESPONSE|" + name + "|" + ip + "|" + port + "|" + deviceId
+                    val responseBytes = response.toByteArray(Charsets.UTF_8)
+                    val responsePacket = DatagramPacket(
+                        responseBytes, responseBytes.size,
+                        packet.address, packet.port
+                    )
+                    socket.send(responsePacket)
+                    Log.d(TAG, "UDP discovery responded to " + packet.address?.hostAddress)
+                }
+            } catch (e: java.net.SocketException) {
+                if (!Thread.currentThread().isInterrupted) {
+                    Log.e(TAG, "UDP socket error", e)
+                }
+                break
+            } catch (e: Exception) {
+                if (!Thread.currentThread().isInterrupted) {
+                    Log.e(TAG, "UDP listener error", e)
+                }
+            }
+        }
+    }
     private fun getLocalIpAddress(): String {
         try {
             val en = java.net.NetworkInterface.getNetworkInterfaces() ?: return "0.0.0.0"
