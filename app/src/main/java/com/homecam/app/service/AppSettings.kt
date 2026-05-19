@@ -57,11 +57,21 @@ object AppSettings {
         prefs(context).getBoolean("sleep_detection", false)
 
     fun getSaveDurationSec(context: Context): Int {
-        return prefs(context).getInt("save_duration", 3)
+        val v = prefs(context).all["save_duration"]
+        return when (v) {
+            is Int -> v
+            is String -> v.toIntOrNull() ?: 3
+            else -> 3
+        }
     }
 
     fun getMaxVideoCount(context: Context): Int {
-        return prefs(context).getInt("max_video_count", 50)
+        val v = prefs(context).all["max_video_count"]
+        return when (v) {
+            is Int -> v
+            is String -> v.toIntOrNull() ?: 50
+            else -> 50
+        }
     }
 
     fun getMaxStorageMb(context: Context): Int {

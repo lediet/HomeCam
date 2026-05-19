@@ -17,6 +17,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.text.method.ScrollingMovementMethod
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -50,6 +51,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var detectionTime: TextView
     private lateinit var recordingSwitch: androidx.appcompat.widget.SwitchCompat
     private lateinit var eventLog: TextView
+    private var backPressedTime = 0L
+    private val backPressInterval = 2000L
+
     private val uiHandler = Handler(Looper.getMainLooper())
     private val eventRefreshRunnable = object : Runnable {
         override fun run() {
@@ -152,6 +156,26 @@ class MainActivity : AppCompatActivity() {
         registerReceiver(stateReceiver, IntentFilter(CameraService.ACTION_STATE_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
         uiHandler.postDelayed(eventRefreshRunnable, 2000)
         updateUI()
+    }
+
+    override fun onBackPressed() {
+        if (CameraService.isRunning.get()) {
+            // 监控开启时直接退出
+            super.onBackPressed()
+        } else {
+            // 监控关闭时双次返回退出
+            if (System.currentTimeMillis() - backPressedTime > backPressInterval) {
+                backPressedTime = System.currentTimeMillis()
+                Toast.makeText(this, R.string.exit_confirm, Toast.LENGTH_SHORT).show()
+            } else {
+                CameraService.clearState()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    finishAndRemoveTask()
+                } else {
+                    finishAffinity()
+                }
+            }
+        }
     }
 
     override fun onPause() {

@@ -1,8 +1,8 @@
 # HomeCam v1.0 工作记录与技术文档
 
-**最后更新**：2026-05-18  
-**版本**：1.4.0  
-**状态**：v1.4.0 新增 UDP 自动发现服务，Homecam-TE 终端可通过 UDP 广播自动发现局域网内的 HomeCam 设备
+**最后更新**：2026-05-19  
+**版本**：1.4.1  
+**状态**：v1.4.1 修复录像保存数量限制不生效、编码器崩溃问题；新增 MJPEG 自适应质量、时域帧丢弃；设置项列表化改造
 
 ---
 
@@ -693,8 +693,8 @@ MJPEG 实时流。Content-Type: `multipart/x-mixed-replace; boundary=--boundary`
 | 人物移动检测 | `motion_detection` | Boolean | true | - | 重启服务 |
 | 婴儿哭声检测 | `cry_detection` | Boolean | false | - | 重启服务 |
 | 宝宝危险检测 | `danger_detection` | Boolean | false | - | 重启服务 |
-| 保存时长(前后) | `save_duration` | Int | 3 | 2-5 秒 | 下次事件触发 |
-| 最大视频数 | `max_video_count` | Int | 50 | 10-100 | 下次保存后清理 |
+| 保存时长(前后) | `save_duration` | String | 3 | 2/3/4/5 | 下次事件触发 |
+| 最大视频数 | `max_video_count` | String | 50 | 10/50/100/200/500/1000 | 下次保存后清理 |
 | 最大存储空间 | `max_storage_mb` | Int | 200 | - (无UI) | 下次保存后清理 |
 | 检测间隔帧数 | (计算属性) | Int | 3或5 | fps>=30时为5 | 实时 |
 
@@ -1266,4 +1266,75 @@ implementation("androidx.camera:camera-core:$cameraxVersion")
 
 ---
 
-*文档结束 — HomeCam v1.4.0 工作记录*
+### v1.4.1 (2026-05-19) — 录像修复、MJPEG 优化、设置改造
+
+#### 新增
+
+1. **MJPEG 流时域感知队列** — MjpegInputStream 新增时间戳感知帧队列
+   - TimedPacket 数据类记录每帧时间戳
+   - 队列满时 clear()+offer() 丢弃所有旧帧，确保浏览器端不累积延迟
+   - nextFreshFrame() 循环跳过超过 1500ms 的旧帧
+
+2. **自适应 JPEG 质量** — CameraService 根据帧处理耗时动态调整 JPEG 压缩质量
+   - 质量范围：40-75
+   - 每 30 帧评估一次：耗时<50ms→quality+5（上限75），耗时>100ms→quality-5（下限40）
+
+3. **设置项列表化改造** — 保存时长和最大视频数从滑条改为弹出菜单
+   - 保存时长选项：2 / 3 / 4 / 5 秒
+   - 最大视频数选项：10 / 50 / 100 / 200 / 500 / 1000
+
+#### 事件检测标签中文翻译
+
+- EventDetector 新增 translateLabel()：person→人, cat→猫, dog→狗, bird→鸟
+- 影响范围：手机端事件显示、Web 端事件显示、通知栏
+
+#### 退出体验改进
+
+- 监控关闭时双击返回键退出应用（2秒内），调用 CameraService.clearState() + finishAndRemoveTask()
+- 监控开启时单次返回直接退出
+- 新增 CameraService.clearState()：重置所有静态状态变量，清空 eventHistory
+
+#### 修复
+
+1. **录像保存数量限制不生效（核心修复）** — 三层问题叠加
+
+   第一层：MediaCodec 编码崩溃
+   - encoder.signalEndOfInputStream() 抛出 IllegalStateException
+   - 编码器尚未输出数据时收到 EOS 信号，进入无效状态
+   - 修复：改用 BUFFER_FLAG_END_OF_STREAM 在最后一帧标记结束，不再调用 signalEndOfInputStream()
+   - 增加 drain 循环安全上限（maxDrainAttempts=300）
+
+   第二层：编码失败后 cleanupOldVideos 永不执行
+   - encodeFramesToMp4 返回 false，if(success) 分支被跳过
+   - 修复：init 块后台线程兜底清理 + saveEventVideo 的 catch 块也执行清理
+   - 移除废弃的 cleanupLock 和 runBlocking import
+
+   第三层：旧版清理逻辑依赖数据库导致 TOCTOU 竞争
+   - Room getCount()/delete() 在协程中逐条删除，事务隔离导致实际文件数远超上限
+   - 修复：改为纯文件操作 listFiles() → sort by lastModified() → 直接 delete 超出部分
+
+2. **设置页 SharedPreferences 类型迁移崩溃**
+   - SeekBarPreference 存 Int，ListPreference 读 String 导致 ClassCastException
+   - 迁移代码自身用 getInt() 检查旧值，首次迁移后值变 String，再次打开又崩溃
+   - 修复：迁移代码用 prefs.all[key] 安全读取类型，仅当 is Int 时转换
+   - AppSettings 改用 prefs.all[key] 兼容 Int 和 String 两种存储类型
+
+3. **设置项 summary 显示默认值而非实际值**
+   - 修复：从 preferenceManager.sharedPreferences 读取当前持久化值
+   - 改为 ListPreference 后由 SimpleSummaryProvider 自动跟踪
+
+#### 技术调整
+
+- 版本号：versionCode = 8, versionName = "1.4.1"
+- app/build.gradle.kts：versionCode 7→8, versionName 1.4.0→1.4.1
+- recorder/VideoRecorder.kt：编码流程重构，清理逻辑重写
+- service/CameraService.kt：新增 currentJpegQuality、adjustJpegQuality()、clearState()
+- web/MjpegInputStream.kt：新增 TimedPacket、nextFreshFrame()，队列满时清空而非逐出
+- ui/SettingsActivity.kt：SeekBarPreference→ListPreference，移除 updateSummary 扩展函数
+- service/AppSettings.kt：getSaveDurationSec/getMaxVideoCount 兼容 Int/String
+- ui/MainActivity.kt：新增双击退出逻辑
+- detection/EventDetector.kt：新增 translateLabel()
+
+---
+
+*文档结束 — HomeCam v1.4.1 工作记录*

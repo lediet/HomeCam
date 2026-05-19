@@ -138,42 +138,40 @@ class SettingsActivity : AppCompatActivity() {
             }
             screen.addPreference(recordingCategory)
 
-            val saveDuration = androidx.preference.SeekBarPreference(context).apply {
+            // 迁移旧版 Int 值为 String（SeekBarPreference→ListPreference）
+            preferenceManager.sharedPreferences?.let { prefs ->
+                val editor = prefs.edit()
+                prefs.all["save_duration"]?.let { v ->
+                    if (v is Int) editor.putString("save_duration", v.toString())
+                }
+                prefs.all["max_video_count"]?.let { v ->
+                    if (v is Int) editor.putString("max_video_count", v.toString())
+                }
+                editor.apply()
+            }
+
+            val saveDuration = androidx.preference.ListPreference(context).apply {
                 key = "save_duration"
                 title = getString(R.string.pref_save_duration)
-                min = 2
-                max = 5
-                setDefaultValue(3)
-                summary = getString(R.string.pref_save_duration_summary, 3)
-                updateSummary { value ->
-                    getString(R.string.pref_save_duration_summary, value)
-                }
+                entries = arrayOf("2", "3", "4", "5")
+                entryValues = arrayOf("2", "3", "4", "5")
+                setDefaultValue("3")
+                summaryProvider = androidx.preference.ListPreference.SimpleSummaryProvider.getInstance()
             }
             recordingCategory.addPreference(saveDuration)
 
-            val maxVideoCount = androidx.preference.SeekBarPreference(context).apply {
+            val maxVideoCount = androidx.preference.ListPreference(context).apply {
                 key = "max_video_count"
                 title = getString(R.string.pref_max_video_count)
-                min = 10
-                max = 100
-                setDefaultValue(50)
-                seekBarIncrement = 10
-                summary = getString(R.string.pref_max_video_count_summary, 50)
-                updateSummary { value ->
-                    getString(R.string.pref_max_video_count_summary, value)
-                }
+                entries = arrayOf("10", "50", "100", "200", "500", "1000")
+                entryValues = arrayOf("10", "50", "100", "200", "500", "1000")
+                setDefaultValue("50")
+                summaryProvider = androidx.preference.ListPreference.SimpleSummaryProvider.getInstance()
             }
             recordingCategory.addPreference(maxVideoCount)
 
             preferenceScreen = screen
             Log.d("SettingsFragment", "onCreatePreferences complete")
-        }
-
-        private fun androidx.preference.SeekBarPreference.updateSummary(provider: (Int) -> String) {
-            setOnPreferenceChangeListener { pref, newValue ->
-                (pref as androidx.preference.SeekBarPreference).summary = provider((newValue as Number).toInt())
-                true
-            }
         }
     }
 }

@@ -59,4 +59,5 @@
     <string name="camera_select">选择摄像头</string>
     <string name="pref_detection_interval">检测频率</string>
     <string name="detection_time_label">单帧检测耗时</string>
+    <string name="exit_confirm">再按一次退出应用</string>
 </resources>

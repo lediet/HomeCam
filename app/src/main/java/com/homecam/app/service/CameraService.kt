@@ -65,6 +65,19 @@ class CameraService : LifecycleService() {
 
         // In-memory event history (always recorded, regardless of recordingEnabled)
         val eventHistory = mutableListOf<EventRecord>()
+
+        fun clearState() {
+            isRunning.set(false)
+            cameraPoweredOn.set(true)
+            latestEventType = null
+            latestEventTime = 0L
+            latestEventLabel = ""
+            latestDetectionMs = 0L
+            recordingEnabled = true
+            synchronized(eventHistory) {
+                eventHistory.clear()
+            }
+        }
     }
 
     data class EventRecord(
@@ -97,6 +110,12 @@ class CameraService : LifecycleService() {
     @Volatile
     private var currentEventType: String? = null
     private var postEventEndTime = 0L
+
+    @Volatile
+    var currentJpegQuality = 75
+        private set
+    private var lastFrameTimeMs = 0L
+    private var frameQualityCounter = 0
 
     override fun onCreate() {
         Log.d(TAG, "onCreate() start")
@@ -597,9 +616,11 @@ class CameraService : LifecycleService() {
             eventDetector.applyDetectionOverlay(scaledBitmap)
             latestDetectionMs = eventDetector.lastDetectionMs
 
-            val jpegData = compressToJpeg(scaledBitmap, 75)
+            val jpegData = compressToJpeg(scaledBitmap, currentJpegQuality)
             streamer.pushFrame(jpegData)
             frameBuffer.addFrame(timestamp, jpegData)
+
+            adjustJpegQuality()
 
             var shouldFinish = false
             if (isRecordingEvent) {
@@ -672,10 +693,12 @@ class CameraService : LifecycleService() {
             eventDetector.applyDetectionOverlay(scaledBitmap)
             latestDetectionMs = eventDetector.lastDetectionMs
 
-            val jpegData = compressToJpeg(scaledBitmap, 75)
+            val jpegData = compressToJpeg(scaledBitmap, currentJpegQuality)
 
             streamer.pushFrame(jpegData)
             frameBuffer.addFrame(timestamp, jpegData)
+
+            adjustJpegQuality()
 
             var shouldFinish = false
             if (isRecordingEvent) {
@@ -704,6 +727,32 @@ class CameraService : LifecycleService() {
         val stream = ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
         return stream.toByteArray()
+    }
+
+    private fun adjustJpegQuality() {
+        val now = System.currentTimeMillis()
+        if (lastFrameTimeMs == 0L) {
+            lastFrameTimeMs = now
+            return
+        }
+        frameQualityCounter++
+        if (frameQualityCounter < 30) return
+        frameQualityCounter = 0
+
+        val frameInterval = 1000L / AppSettings.getFps(this@CameraService)
+        val actualInterval = now - lastFrameTimeMs
+        lastFrameTimeMs = now
+
+        when {
+            actualInterval > frameInterval * 3 && currentJpegQuality > 45 -> {
+                currentJpegQuality = (currentJpegQuality - 5).coerceAtLeast(45)
+                Log.d(TAG, "JPEG quality reduced to $currentJpegQuality (interval=${actualInterval}ms)")
+            }
+            actualInterval < frameInterval && currentJpegQuality < 75 -> {
+                currentJpegQuality = (currentJpegQuality + 2).coerceAtMost(75)
+                Log.d(TAG, "JPEG quality increased to $currentJpegQuality")
+            }
+        }
     }
 
     private fun onEventDetected(eventType: String) {

@@ -36,6 +36,9 @@ class VideoRecorder(
     init {
         val created = outputDir.mkdirs()
         android.util.Log.d(TAG, "init: outputDir=$outputDir, mkdirs=$created, exists=${outputDir.exists()}")
+        Thread {
+            cleanupOldVideos()
+        }.start()
     }
 
     fun saveEventVideo(
@@ -68,7 +71,8 @@ class VideoRecorder(
                     cleanupOldVideos()
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                android.util.Log.e(TAG, "saveEventVideo failed", e)
+                cleanupOldVideos()
             }
         }
     }
@@ -118,9 +122,11 @@ class VideoRecorder(
                     inputBuffer.put(yuv)
 
                     val presentationTimeUs = (timestamp - frames.first().first) * 1000
+                    val isLast = frameIndex == frames.size - 1
+                    val flags = if (isLast) MediaCodec.BUFFER_FLAG_END_OF_STREAM else 0
                     encoder.queueInputBuffer(
                         inputBufferIndex, 0, yuv.size,
-                        presentationTimeUs, 0
+                        presentationTimeUs, flags
                     )
                     frameIndex++
                 }
@@ -130,14 +136,14 @@ class VideoRecorder(
                 }, trackIndex, muxerStarted)
             }
 
-            encoder.signalEndOfInputStream()
+            // 最后 drain：等待编码器输出所有剩余数据（含 EOS）
             drainEncoder(encoder, bufferInfo, muxer, { idx ->
                 trackIndex = idx; muxerStarted = true
             }, trackIndex, muxerStarted, endOfStream = true)
 
             return true
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e(TAG, "encodeFramesToMp4 failed", e)
             return false
         } finally {
             try {
@@ -163,8 +169,11 @@ class VideoRecorder(
         val timeoutUs = if (endOfStream) 10_000L else 0L
         var currentTrack = trackIndex
         var started = muxerStarted
+        var drainAttempts = 0
+        val maxDrainAttempts = 300
 
-        while (true) {
+        while (drainAttempts < maxDrainAttempts) {
+            drainAttempts++
             val outputBufferIndex = encoder.dequeueOutputBuffer(info, timeoutUs)
             when {
                 outputBufferIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> {
@@ -250,20 +259,29 @@ class VideoRecorder(
         return "HomeCam_${typeShort}_${sdf.format(Date())}.mp4"
     }
 
-    private suspend fun cleanupOldVideos() {
+    private fun cleanupOldVideos() {
         val maxCount = settings.getMaxVideoCount(context)
-        val maxSize = settings.getMaxStorageMb(context) * 1024L * 1024L
+        android.util.Log.d(TAG, "cleanup: maxCount=$maxCount")
 
-        var totalSize = videoDao.getTotalSize() ?: 0L
-        var count = videoDao.getCount()
+        val allFiles = outputDir.listFiles()
+            ?.filter { it.isFile() && it.name.endsWith(".mp4") }
+            ?.sortedBy { it.lastModified() }
+            ?: run {
+                android.util.Log.d(TAG, "cleanup: listFiles returned null")
+                return
+            }
 
-        while (count > maxCount || totalSize > maxSize) {
-            val oldest = videoDao.getOldest() ?: break
-            val file = File(outputDir, oldest.fileName)
-            if (file.exists()) file.delete()
-            totalSize -= oldest.fileSize
-            count--
-            videoDao.delete(oldest)
+        if (allFiles.size <= maxCount) {
+            android.util.Log.d(TAG, "cleanup: ${allFiles.size} files <= $maxCount, skip")
+            return
+        }
+
+        val toDelete = allFiles.size - maxCount
+        android.util.Log.d(TAG, "cleanup: deleting $toDelete files (${allFiles.size} total)")
+        for (i in 0 until toDelete) {
+            val f = allFiles[i]
+            val ok = f.delete()
+            android.util.Log.d(TAG, "cleanup: delete ${f.name} -> $ok")
         }
     }
 
