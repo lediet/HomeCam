@@ -1,4 +1,4 @@
-# HomeCam v1.0
+# HomeCam v1.5.0
 
 将旧 Android 手机变为局域网监控摄像头的应用。
 
@@ -16,7 +16,7 @@
 
 ## AI 模型文件
 
-应用需要两个 TFLite 模型文件，放在 `app/src/main/assets/` 下：
+应用需要四个 TFLite/Task 模型文件，放在 `app/src/main/assets/` 下：
 
 ### 1. 人物检测模型 - efficientdet_lite0.tflite
 
@@ -32,6 +32,20 @@ https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lit
 https://tfhub.dev/google/lite-model/yamnet/classification/tflite/1
 ```
 
+### 3. 姿态关键点模型 - pose_landmarker.task
+
+从 MediaPipe 模型仓库下载（float16 版本）：
+```
+https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task
+```
+
+### 4. 手部关键点模型 - hand_landmarker.task
+
+从 MediaPipe 模型仓库下载（float16 版本）：
+```
+https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task
+```
+
 ## 功能概览
 
 - 后置摄像头视频采集（640x480 / 1280x720）
@@ -39,6 +53,8 @@ https://tfhub.dev/google/lite-model/yamnet/classification/tflite/1
 - 息屏后台持续运行（前台服务 + WakeLock）
 - 本地 AI 人物移动检测（MediaPipe EfficientDet-Lite0）
 - 本地 AI 婴儿哭声检测（TFLite YAMNet）
+- 本地 AI 跌倒检测（MediaPipe Pose Landmarker 躯干角度分析）
+- 本地 AI 玩手机检测（EfficientDet 手机识别 + Hand Landmarker 握持手势）
 - 事件触发自动录像保存（MP4，环形缓冲）
 - 内置 Web 管理页面（实时画面 + 历史视频）
 - REST API 接口供未来扩展

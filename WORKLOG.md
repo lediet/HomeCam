@@ -733,6 +733,9 @@ MJPEG 实时流。Content-Type: `multipart/x-mixed-replace; boundary=--boundary`
 |----------|------|------|
 | `efficientdet_lite0.tflite` | ~14 MB | ✅ v1.2.0 已包含在 `assets/` 中 |
 | `yamnet.tflite` | ~4 MB | ✅ 已包含在 `assets/` 中 |
+| `face_landmarker.task` | ~5 MB | ✅ v1.3.1 起需要 |
+| `pose_landmarker.task` | ~5 MB | ✅ v1.5.0 起需要 |
+| `hand_landmarker.task` | ~15 MB | ✅ v1.5.0 起需要 |
 
 如果模型文件缺失，`initVisualDetector()` / `initAudioDetector()` 会捕获异常并打印堆栈，对应功能不可用但不会崩溃。
 
@@ -1337,4 +1340,80 @@ implementation("androidx.camera:camera-core:$cameraxVersion")
 
 ---
 
-*文档结束 — HomeCam v1.4.1 工作记录*
+---
+
+### v1.5.0 (2026-05-20) — 跌倒检测 + 玩手机检测
+
+#### 新增
+
+1. **AI 跌倒检测** — 基于 MediaPipe Pose Landmarker 躯干角度分析
+   - 模型：`pose_landmarker.task`（float16 版本）
+   - 算法：Pose Landmarker 33 关键点 → 肩部中点 / 髋部中点 → 躯干向量与垂直轴夹角
+   - 阈值：躯干角度 > 50° 判定为可能摔倒
+   - 状态机：STANDING → POSSIBLE_FALL（持续 ~3 秒）→ FALL_EVENT（触发 `fall`）
+   - 恢复检测：FALL_EVENT → 角度恢复正常 → 触发 `get_up`
+   - 动态阈值：`((fps/interval)*3).coerceIn(5, 60)`
+   - 冷却：10 秒（fall/get_up 共享）
+
+2. **AI 玩手机检测** — 基于 EfficientDet 手机识别 + Hand Landmarker 手部位置
+   - 模型：`hand_landmarker.task`（float16 版本）
+   - 算法：`0.6 × phoneConfidence + 0.4 × handProximity`（手部中心与手机包围盒距离评分）
+   - 最终置信度：`(combinedP × 130).coerceAtMost(100)`，显示为百分比
+   - 触发阈值：combinedP > 0.5
+   - 事件类型：`phone:{confidencePct}`（如 `phone:70` → 显示「有人在玩手机（70%）」）
+   - 冷却：30 秒（事件触发间隔）
+   - Log.d 输出间隔：30 秒（信息输出节流）
+
+#### 设置联动
+
+- 跌倒检测（`fall_detection`）和玩手机检测（`phone_detection`）依赖人物移动检测（`motion_detection`）
+- 关闭人物移动检测时，两项子开关自动禁用（`OnPreferenceChangeListener` 手动实现）
+- 检测顺序：人物移动 → 检测频率(下拉菜单展开) → 跌倒检测 → 玩手机检测
+
+#### 算法演进（玩手机检测 6 个版本）
+
+| 版本 | 方法 | 问题 |
+|------|------|------|
+| V1 | 重叠度 + 手指弯曲计数 | 评分不连续，只有 0.6/1.0 两档 |
+| V2 | 手机前置条件 + IoU + 手指计数 | 手和手机重叠时漏检 |
+| V3 | 肘部弯曲替代手指弯曲 | 肘部角度输出恒为 0，不可靠 |
+| V4 | 手机置信度 + Bounding Box IoU | 重叠度一直很小 |
+| V5 | 手机置信度 + 手部关键点距离评分 | 综合评分 0.6/0.4 加权 |
+| V6 | 同上 + ×1.3 缩放上限 100% + 30 秒冷却 | 最终版本 |
+
+#### 修改文件清单
+
+| 文件 | 变更说明 |
+|------|---------|
+| `app/build.gradle.kts` | versionName = "1.5.0", versionCode = 8 → 9 |
+| `detection/EventDetector.kt` | 新增 Pose/Hand Landmarker 初始化、analyzeFall()、analyzePhone()、FallState 状态机、ROI 裁剪、手机距离评分 |
+| `service/CameraService.kt` | 集成检测器初始化、复合事件解析（phone:70 拆分为 type/label） |
+| `service/AppSettings.kt` | 新增 fall_detection / phone_detection 设置项读取 |
+| `ui/SettingsActivity.kt` | 新增开关、依赖联动（OnPreferenceChangeListener） |
+| `res/values/strings.xml` | 新增 8 个字符串（事件 + 设置 + 提示） |
+| `ui/MainActivity.kt` | 新增 fall/get_up/phone 事件文本映射 |
+| `web/CamWebServer.kt` | API 状态新增 fall/phone 检测标志 |
+| `assets/web/app.js` | Web UI 事件图标和标签适配 |
+| `recorder/VideoRecorder.kt` | 新增 FAL/GUP/PHN 文件名缩写 |
+| `assets/models/README.md` | 新增模型下载说明 |
+| `LABEL.MD` | 新建事件标签文档 |
+
+#### 事件类型新增
+
+| 类型 | 触发条件 | 手机显示 | Web 显示 | 冷却 |
+|------|---------|---------|---------|------|
+| `fall` | 躯干角度 > 50° 持续 ~3 秒 | 检测到有人摔倒 | 检测到有人摔倒 | 10s |
+| `get_up` | 摔倒后恢复站立 | 有人站起来了 | 有人站起来了 | 10s (共享) |
+| `phone` | 综合置信度 > 0.5 | 有人在玩手机（{n}%） | 有人在玩手机（{n}%） | 30s |
+
+#### 注意事项
+
+1. 首次初始化 Pose Landmarker 约 1-2 秒，初始化阶段跳过跌倒检测
+2. 玩手机检测需手机和手同时出现在画面中，建议正面拍摄
+3. 两项检测均依赖人物移动检测开关，关闭时自动禁用
+4. 模型文件缺失时 try-catch 自动跳过，不影响其他功能
+
+---
+
+*文档结束 — HomeCam v1.5.0 工作记录*
+

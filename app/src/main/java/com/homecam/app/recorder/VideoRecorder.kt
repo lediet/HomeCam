@@ -254,6 +254,9 @@ class VideoRecorder(
             "motion" -> "MOT"
             "cry" -> "CRY"
             "danger" -> "DNG"
+            "fall" -> "FAL"
+            "get_up" -> "GUP"
+            "phone" -> "PHN"
             else -> "EVT"
         }
         return "HomeCam_${typeShort}_${sdf.format(Date())}.mp4"

@@ -759,17 +759,24 @@ class CameraService : LifecycleService() {
         Log.d(TAG, "onEventDetected: $eventType")
         val now = System.currentTimeMillis()
 
+        // Parse compound event types (e.g. "phone:70" -> type="phone", label="70%")
+        val (cleanType, extraLabel) = if (eventType.startsWith("phone:")) {
+            "phone" to eventType.substringAfter("phone:") + "%"
+        } else {
+            eventType to ""
+        }
+
         // "motion" events are for video recording only — not added to event log
-        if (eventType != "motion") {
-            val label = when (eventType) {
+        if (cleanType != "motion") {
+            val label = when (cleanType) {
                 "enter", "leave" -> eventDetector.currentOccupantLabel
-                else -> ""
+                else -> extraLabel
             }
-            latestEventType = eventType
+            latestEventType = cleanType
             latestEventTime = now
             latestEventLabel = label
             synchronized(eventHistory) {
-                eventHistory.add(EventRecord(eventType, now, label))
+                eventHistory.add(EventRecord(cleanType, now, label))
                 if (eventHistory.size > 1000) eventHistory.removeAt(0)
             }
             sendBroadcast(Intent(ACTION_STATE_CHANGED))
@@ -784,12 +791,12 @@ class CameraService : LifecycleService() {
         synchronized(postEventFrames) {
             if (isRecordingEvent) return
             isRecordingEvent = true
-            currentEventType = eventType
+            currentEventType = cleanType
             postEventEndTime = now + saveDuration * 1000L
             postEventFrames.clear()
         }
 
-        updateNotification(eventType)
+        updateNotification(cleanType)
     }
 
     private fun finishEventVideo() {
@@ -816,6 +823,9 @@ class CameraService : LifecycleService() {
             "wake_up" -> getString(R.string.event_wake_up)
             "enter" -> getString(R.string.event_enter, latestEventLabel.ifEmpty { "未知" })
             "leave" -> getString(R.string.event_leave, latestEventLabel.ifEmpty { "未知" })
+            "fall" -> getString(R.string.event_fall)
+            "get_up" -> getString(R.string.event_get_up)
+            "phone" -> getString(R.string.event_phone, latestEventLabel.ifEmpty { "50%" })
             else -> getString(R.string.event_unknown)
         }
 
@@ -855,6 +865,16 @@ class CameraService : LifecycleService() {
             eventDetector.initAudioDetector()
             eventDetector.startAudioDetection()
             Log.d(TAG, "Audio detector initialized and started")
+        }
+        if (AppSettings.isFallDetectionEnabled(this)) {
+            Log.d(TAG, "Initializing pose detector...")
+            eventDetector.initPoseDetector()
+            Log.d(TAG, "Pose detector initialized")
+        }
+        if (AppSettings.isPhoneDetectionEnabled(this)) {
+            Log.d(TAG, "Initializing hand detector...")
+            eventDetector.initHandDetector()
+            Log.d(TAG, "Hand detector initialized")
         }
     }
 

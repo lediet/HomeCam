@@ -158,7 +158,7 @@
                 }
                 if (data.latest_event) {
                     const time = new Date(data.latest_event_time).toLocaleTimeString('zh-CN');
-                    const typeLabel = {motion: '人物移动', cry: '婴儿哭声', sleep: '宝宝睡着了', wake_up: '宝宝睡醒了', enter: '有' + (data.latest_event_label || '') + '进入了', leave: '有' + (data.latest_event_label || '') + '离开了'}[data.latest_event] || data.latest_event;
+                    const typeLabel = getEventLabel(data.latest_event, data.latest_event_label || '');
                 }
                 // Sync power state from status
                 if (data.camera_powered !== undefined && data.camera_powered !== cameraPowered) {
@@ -188,6 +188,21 @@
     loadCameraList();
     setInterval(loadCameraList, 30000);
 
+    function getEventLabel(type, label) {
+        switch (type) {
+            case 'motion': return '人物移动';
+            case 'cry': return '婴儿哭声';
+            case 'sleep': return '宝宝睡着了';
+            case 'wake_up': return '宝宝睡醒了';
+            case 'enter': return '有' + (label || '') + '进入了';
+            case 'leave': return '有' + (label || '') + '离开了';
+            case 'fall': return '检测到有人摔倒';
+            case 'get_up': return '有人站起来了';
+            case 'phone': return '有人在玩手机（' + (label || '50%') + '）';
+            default: return type;
+        }
+    }
+
     // Load event log (latest 10)
     function loadEventLog() {
         fetch('/api/events')
@@ -198,12 +213,9 @@
                     return;
                 }
                 const last10 = events.slice(-10).reverse();
-                const typeLabel = {motion: '人物移动', cry: '婴儿哭声', sleep: '宝宝睡着了', wake_up: '宝宝睡醒了'};
                 eventList.innerHTML = last10.map(e => {
                     const time = new Date(e.time).toLocaleTimeString('zh-CN');
-                    let label = typeLabel[e.type] || e.type;
-                    if (e.type === 'enter') label = '有' + (e.label || '') + '进入了';
-                    if (e.type === 'leave') label = '有' + (e.label || '') + '离开了';
+                    const label = getEventLabel(e.type, e.label || '');
                     return '<div class="event-item">' + time + ' ' + label + '</div>';
                 }).join('');
             })
@@ -225,8 +237,8 @@
                 videoList.innerHTML = videos.slice(-10).map(v => {
                     const time = new Date(v.timestamp).toLocaleTimeString('zh-CN');
                     const date = new Date(v.timestamp).toLocaleDateString('zh-CN');
-                    const icon = {motion: '👤', cry: '🔊', sleep: '💤', wake_up: '😴', enter: '🚶', leave: '🚪'}[v.eventType] || '📁';
-                    const typeLabel = {motion: '人物移动', cry: '婴儿哭声', sleep: '宝宝睡着了', wake_up: '宝宝睡醒了', enter: '有人进入', leave: '有人离开'}[v.eventType] || v.eventType;
+                    const icon = {motion: '👤', cry: '🔊', sleep: '💤', wake_up: '😴', enter: '🚶', leave: '🚪', fall: '😵', get_up: '🧍', phone: '📱'}[v.eventType] || '📁';
+                    const typeLabel = {motion: '人物移动', cry: '婴儿哭声', sleep: '宝宝睡着了', wake_up: '宝宝睡醒了', enter: '有人进入', leave: '有人离开', fall: '有人摔倒', get_up: '有人站起来了', phone: '玩手机'}[v.eventType] || v.eventType;
                     const size = (v.fileSize / 1024 / 1024).toFixed(1);
 
                     return `<div class="video-item" data-url="${v.url}" data-filename="${v.fileName}">

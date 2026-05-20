@@ -1,8 +1,12 @@
 package com.homecam.app.ui
 
 import android.os.Bundle
+import androidx.preference.PreferenceCategory
+import androidx.preference.SwitchPreferenceCompat
+import androidx.preference.ListPreference
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
+import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import com.homecam.app.R
 
@@ -94,29 +98,45 @@ class SettingsActivity : AppCompatActivity() {
             networkCategory.addPreference(webPort)
 
             // Detection category
-            val detectionCategory = androidx.preference.PreferenceCategory(context).apply {
+            val detectionCategory = PreferenceCategory(context).apply {
                 title = getString(R.string.pref_category_detection)
             }
             screen.addPreference(detectionCategory)
 
-            val motionDetection = androidx.preference.SwitchPreferenceCompat(context).apply {
+            val motionDetection = SwitchPreferenceCompat(context).apply {
                 key = "motion_detection"
                 title = getString(R.string.pref_motion_detection)
                 setDefaultValue(true)
             }
             detectionCategory.addPreference(motionDetection)
 
-            val detectionInterval = androidx.preference.ListPreference(context).apply {
+            val detectionInterval = ListPreference(context).apply {
                 key = "detection_interval"
                 title = getString(R.string.pref_detection_interval)
                 entries = arrayOf("每 1 帧", "每 2 帧", "每 3 帧", "每 5 帧", "每 10 帧")
                 entryValues = arrayOf("1", "2", "3", "5", "10")
                 setDefaultValue("3")
-                summaryProvider = androidx.preference.ListPreference.SimpleSummaryProvider.getInstance()
+                summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
             }
             detectionCategory.addPreference(detectionInterval)
 
-            val cryDetection = androidx.preference.SwitchPreferenceCompat(context).apply {
+            val fallDetection = SwitchPreferenceCompat(context).apply {
+                key = "fall_detection"
+                title = getString(R.string.pref_fall_detection)
+                summary = getString(R.string.pref_fall_detection_summary)
+                setDefaultValue(false)
+            }
+            detectionCategory.addPreference(fallDetection)
+
+            val phoneDetection = SwitchPreferenceCompat(context).apply {
+                key = "phone_detection"
+                title = getString(R.string.pref_phone_detection)
+                summary = getString(R.string.pref_phone_detection_summary)
+                setDefaultValue(false)
+            }
+            detectionCategory.addPreference(phoneDetection)
+
+            val cryDetection = SwitchPreferenceCompat(context).apply {
                 key = "cry_detection"
                 title = getString(R.string.pref_cry_detection)
                 summary = getString(R.string.pref_cry_detection_summary)
@@ -124,7 +144,7 @@ class SettingsActivity : AppCompatActivity() {
             }
             detectionCategory.addPreference(cryDetection)
 
-            val sleepDetection = androidx.preference.SwitchPreferenceCompat(context).apply {
+            val sleepDetection = SwitchPreferenceCompat(context).apply {
                 key = "sleep_detection"
                 title = getString(R.string.pref_sleep_detection)
                 summary = getString(R.string.pref_sleep_detection_summary)
@@ -171,6 +191,24 @@ class SettingsActivity : AppCompatActivity() {
             recordingCategory.addPreference(maxVideoCount)
 
             preferenceScreen = screen
+
+            // Manual dependency: disable sub-switches when motion detection is off
+            val motionDeps = mapOf(
+                fallDetection to R.string.pref_fall_detection_summary,
+                phoneDetection to R.string.pref_phone_detection_summary
+            )
+            fun updateMotionDeps(enabled: Boolean) {
+                for ((dep, summaryId) in motionDeps) {
+                    dep.isEnabled = enabled
+                    dep.summary = getString(if (enabled) summaryId else R.string.pref_depends_motion)
+                }
+            }
+            motionDetection.onPreferenceChangeListener =
+                Preference.OnPreferenceChangeListener { _, newValue ->
+                    updateMotionDeps(newValue as Boolean)
+                    true
+                }
+            updateMotionDeps(motionDetection.isChecked)
             Log.d("SettingsFragment", "onCreatePreferences complete")
         }
     }

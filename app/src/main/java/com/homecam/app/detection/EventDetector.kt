@@ -15,6 +15,8 @@ import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
 import com.homecam.app.service.AppSettings
 import org.tensorflow.lite.task.audio.classifier.AudioClassifier
 import org.tensorflow.lite.support.audio.TensorAudio
+import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
+import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
 
 class EventDetector(
     private val context: Context,
@@ -78,9 +80,29 @@ class EventDetector(
     private val SLEEP_CLOSED_FRAMES = 5   // N consecutive closed-eye detections (at 1/sec) -> sleep
     private val AWAKE_OPEN_FRAMES = 5     // consecutive open-eye detections (at 1/sec) while sleeping -> wake_up
 
+    // Fall detection via PoseLandmarker
+    private var poseLandmarker: PoseLandmarker? = null
+    private var fallState = FallState.STANDING
+    private var fallCounter = 0
+    private var fallThreshold = 15
+    private var lastFallTriggerTime = 0L
+    private var lastGetUpTriggerTime = 0L
+    private val fallCooldownMs = 10000L
+
+    // Phone detection via HandLandmarker
+    private var handLandmarker: HandLandmarker? = null
+    private var lastPhoneTriggerTime = 0L
+    private val phoneCooldownMs = 30000L
+    private var lastPhoneLogTime = 0L
+    private var lastPhoneRect: RectF? = null
+    private var lastPhoneScore: Float = 0f
+    private var lastPersonRect: RectF? = null
+
     enum class SleepState { AWAKE, SLEEPING }
 
     enum class OccupancyState { EMPTY, OCCUPIED }
+
+    enum class FallState { STANDING, POSSIBLE_FALL, FALL_EVENT }
 
     private var occupancyState = OccupancyState.EMPTY
     private var lastOccupiedTime = 0L
@@ -140,6 +162,8 @@ class EventDetector(
 
         // Clear stale overlay before new detection
         lastBoxRect = null
+        lastPhoneRect = null
+        lastPhoneScore = 0f
 
         isProcessing = true
         try {
@@ -164,6 +188,12 @@ class EventDetector(
 
                     val isPerson = categoryName.equals("person", ignoreCase = true)
                     val isAnimal = animalLabels.any { categoryName.equals(it, ignoreCase = true) }
+                    val isCellPhone = categoryName.equals("cell phone", ignoreCase = true)
+
+                    if (isCellPhone) {
+                        lastPhoneRect = detection.boundingBox()
+                        lastPhoneScore = score
+                    }
 
                     if (isPerson || isAnimal) {
                         if (!personFound) {
@@ -172,6 +202,7 @@ class EventDetector(
                             lastBoxScore = score
                             personFound = true
                             detectedLabel = categoryName
+                            lastPersonRect = detection.boundingBox()
                         }
 
                         // Fire "motion" for video recording (with cooldown)
@@ -201,6 +232,19 @@ class EventDetector(
                     }
                 }
             }
+
+            // --- Fall detection (only when person detected) ---
+            if (personFound && AppSettings.isFallDetectionEnabled(context)) {
+                val personRect = lastPersonRect ?: lastBoxRect
+                if (personRect != null) {
+                    analyzeFall(bitmap, personRect)
+                }
+            }
+
+            // --- Phone detection (only when person detected) ---
+            if (personFound && AppSettings.isPhoneDetectionEnabled(context)) {
+                analyzePhone(bitmap)
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         } finally {
@@ -227,6 +271,45 @@ class EventDetector(
             Log.d(TAG, "initSleepDetector() success")
         } catch (e: Exception) {
             Log.e(TAG, "initSleepDetector() FAILED - model file missing", e)
+        }
+    }
+
+    fun initPoseDetector() {
+        Log.d(TAG, "initPoseDetector() start")
+        try {
+            val baseOptions = BaseOptions.builder()
+                .setModelAssetPath("pose_landmarker.task")
+                .build()
+            val options = PoseLandmarker.PoseLandmarkerOptions.builder()
+                .setBaseOptions(baseOptions)
+                .setRunningMode(RunningMode.IMAGE)
+                .build()
+            poseLandmarker = PoseLandmarker.createFromOptions(context, options)
+            val interval = AppSettings.getDetectionIntervalFrames(context)
+            val fps = AppSettings.getFps(context)
+            val detectionsPerSec = fps / interval.toFloat()
+            fallThreshold = (detectionsPerSec * 3).toInt().coerceIn(5, 60)
+            Log.d(TAG, "initPoseDetector() success, fallThreshold=$fallThreshold")
+        } catch (e: Exception) {
+            Log.e(TAG, "initPoseDetector() FAILED - model file missing", e)
+        }
+    }
+
+    fun initHandDetector() {
+        Log.d(TAG, "initHandDetector() start")
+        try {
+            val baseOptions = BaseOptions.builder()
+                .setModelAssetPath("hand_landmarker.task")
+                .build()
+            val options = HandLandmarker.HandLandmarkerOptions.builder()
+                .setBaseOptions(baseOptions)
+                .setRunningMode(RunningMode.IMAGE)
+                .setNumHands(2)
+                .build()
+            handLandmarker = HandLandmarker.createFromOptions(context, options)
+            Log.d(TAG, "initHandDetector() success")
+        } catch (e: Exception) {
+            Log.e(TAG, "initHandDetector() FAILED - model file missing", e)
         }
     }
 
@@ -312,6 +395,153 @@ class EventDetector(
         }
     }
 
+    /** Run fall detection: crop person ROI -> PoseLandmarker -> state machine */
+    fun analyzeFall(bitmap: Bitmap, personRect: RectF) {
+        val detector = poseLandmarker ?: return
+        try {
+            val roi = cropWithPadding(bitmap, personRect, 0.3f)
+            val mpImage = BitmapImageBuilder(roi).build()
+            val result = detector.detect(mpImage)
+            roi.recycle()
+
+            if (result.landmarks().isEmpty()) {
+                Log.d(TAG, "analyzeFall: no pose landmarks")
+                return
+            }
+
+            val landmarks = result.landmarks()[0]
+            onPoseLandmarkResult(landmarks)
+        } catch (e: Exception) {
+            Log.e(TAG, "analyzeFall error", e)
+        }
+    }
+
+    private fun cropWithPadding(bitmap: Bitmap, rect: RectF, padRatio: Float): Bitmap {
+        val w = bitmap.width.toFloat()
+        val h = bitmap.height.toFloat()
+        val padW = rect.width() * padRatio
+        val padH = rect.height() * padRatio
+        val left = (rect.left - padW).coerceAtLeast(0f)
+        val top = (rect.top - padH).coerceAtLeast(0f)
+        val right = (rect.right + padW).coerceAtMost(w)
+        val bottom = (rect.bottom + padH).coerceAtMost(h)
+        return Bitmap.createBitmap(bitmap, left.toInt(), top.toInt(), (right - left).toInt(), (bottom - top).toInt())
+    }
+
+    /** Fall state machine based on torso angle */
+    private fun onPoseLandmarkResult(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>) {
+        if (landmarks.size < 25) return
+
+        val leftShoulder = landmarks[11]
+        val rightShoulder = landmarks[12]
+        val leftHip = landmarks[23]
+        val rightHip = landmarks[24]
+
+        val midShoulderX = (leftShoulder.x() + rightShoulder.x()) / 2f
+        val midShoulderY = (leftShoulder.y() + rightShoulder.y()) / 2f
+        val midHipX = (leftHip.x() + rightHip.x()) / 2f
+        val midHipY = (leftHip.y() + rightHip.y()) / 2f
+
+        val dx = midHipX - midShoulderX
+        val dy = midHipY - midShoulderY
+        val length = kotlin.math.sqrt(dx * dx + dy * dy)
+        if (length < 1e-6f) return
+
+        val cosAngle = kotlin.math.abs(dy) / length
+        val torsoAngleDeg = Math.toDegrees(kotlin.math.acos(cosAngle.toDouble())).toFloat()
+        val now = System.currentTimeMillis()
+
+        Log.d(TAG, String.format("Fall detection: torsoAngle=%.1f, state=%s, counter=%d/%d",
+            torsoAngleDeg, fallState.name, fallCounter, fallThreshold))
+
+        val isFallen = torsoAngleDeg > 50f
+
+        when (fallState) {
+            FallState.STANDING -> {
+                if (isFallen) {
+                    fallCounter++
+                    fallState = FallState.POSSIBLE_FALL
+                }
+            }
+            FallState.POSSIBLE_FALL -> {
+                if (isFallen) {
+                    fallCounter++
+                    if (fallCounter >= fallThreshold) {
+                        fallState = FallState.FALL_EVENT
+                        fallCounter = 0
+                        if (now - lastFallTriggerTime > fallCooldownMs) {
+                            lastFallTriggerTime = now
+                            Log.d(TAG, ">>> FALL event triggered")
+                            onEventDetected("fall")
+                        }
+                    }
+                } else {
+                    fallState = FallState.STANDING
+                    fallCounter = 0
+                }
+            }
+            FallState.FALL_EVENT -> {
+                if (!isFallen) {
+                    fallState = FallState.STANDING
+                    fallCounter = 0
+                    if (now - lastGetUpTriggerTime > fallCooldownMs) {
+                        lastGetUpTriggerTime = now
+                        Log.d(TAG, ">>> GET_UP event triggered")
+                        onEventDetected("get_up")
+                    }
+                }
+            }
+        }
+    }
+
+    /** Run phone detection: HandLandmarker + grasping gesture check */
+    fun analyzePhone(bitmap: Bitmap) {
+        val phoneRect = lastPhoneRect ?: return
+        val pRect = lastPersonRect ?: lastBoxRect ?: return
+        val handDetector = handLandmarker ?: return
+        val now = System.currentTimeMillis()
+        try {
+            val mpImage = BitmapImageBuilder(bitmap).build()
+            val handResult = handDetector.detect(mpImage)
+            val phoneConfidence = lastPhoneScore
+            val phoneCx = phoneRect.centerX()
+            val phoneCy = phoneRect.centerY()
+            val phoneSize = kotlin.math.max(phoneRect.width(), phoneRect.height())
+            var handProximity = 0.0f
+            for (handLandmarks in handResult.landmarks()) {
+                var hx = 0f; var hy = 0f; var n = 0
+                for (lm in handLandmarks) {
+                    hx += lm.x() * bitmap.width
+                    hy += lm.y() * bitmap.height
+                    n++
+                }
+                if (n == 0) continue
+                hx /= n; hy /= n
+                val dx = hx - phoneCx
+                val dy = hy - phoneCy
+                val dist = kotlin.math.sqrt(dx*dx + dy*dy)
+                val maxDist = phoneSize * 2.5f
+                if (dist < maxDist) {
+                    val score = 1.0f - (dist / maxDist)
+                    if (score > handProximity) handProximity = score
+                }
+            }
+            val combinedP = 0.6f * phoneConfidence + 0.4f * handProximity
+            if (now - lastPhoneLogTime > 30000L) {
+                lastPhoneLogTime = now
+                Log.d(TAG, String.format("Phone detection: phoneConf=%.2f, handProx=%.2f, combined=%.2f",
+                    phoneConfidence, handProximity, combinedP))
+            }
+            if (combinedP > 0.5f && now - lastPhoneTriggerTime > phoneCooldownMs) {
+                lastPhoneTriggerTime = now
+                val confidencePct = ((combinedP * 130).toInt()).coerceAtMost(100)
+                Log.d(TAG, ">>> PHONE event triggered, confidence=" + confidencePct + "%")
+                onEventDetected("phone:" + confidencePct)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "analyzePhone error", e)
+        }
+    }
     fun startAudioDetection() {
         if (!AppSettings.isCryDetectionEnabled(context)) return
         if (isAudioRunning) return
@@ -431,5 +661,9 @@ class EventDetector(
         audioClassifier = null
         try { faceLandmarker?.close() } catch (_: Exception) {}
         faceLandmarker = null
+        try { poseLandmarker?.close() } catch (_: Exception) {}
+        poseLandmarker = null
+        try { handLandmarker?.close() } catch (_: Exception) {}
+        handLandmarker = null
     }
 }

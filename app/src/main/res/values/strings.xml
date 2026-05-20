@@ -23,6 +23,9 @@
     <string name="event_unknown">未知事件</string>
     <string name="latest_event_label">最新事件</string>
     <string name="no_events">暂无事件</string>
+    <string name="event_fall">检测到有人摔倒</string>
+    <string name="event_get_up">有人站起来了</string>
+    <string name="event_phone">有人在玩手机（%1$s）</string>
 
     <!-- Notification -->
     <string name="notification_channel_name">HomeCam 监控服务</string>
@@ -49,6 +52,11 @@
     <string name="pref_cry_detection_summary">需要麦克风权限</string>
     <string name="pref_sleep_detection">睡眠检测</string>
     <string name="pref_sleep_detection_summary">AI面部识别闭眼检测</string>
+    <string name="pref_fall_detection">跌倒检测</string>
+    <string name="pref_fall_detection_summary">AI姿态识别摔倒检测</string>
+    <string name="pref_phone_detection">玩手机检测</string>
+    <string name="pref_phone_detection_summary">AI手势识别玩手机行为</string>
+    <string name="pref_depends_motion">需开启人物移动检测</string>
     <string name="pref_category_recording">录像</string>
     <string name="pref_save_duration">触发保存时长(前后)</string>
     <string name="pref_save_duration_summary">前后各 %1$d 秒</string>

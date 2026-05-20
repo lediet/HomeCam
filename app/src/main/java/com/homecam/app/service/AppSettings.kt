@@ -56,6 +56,12 @@ object AppSettings {
     fun isSleepDetectionEnabled(context: Context): Boolean =
         prefs(context).getBoolean("sleep_detection", false)
 
+    fun isFallDetectionEnabled(context: Context): Boolean =
+        prefs(context).getBoolean("fall_detection", false)
+
+    fun isPhoneDetectionEnabled(context: Context): Boolean =
+        prefs(context).getBoolean("phone_detection", false)
+
     fun getSaveDurationSec(context: Context): Int {
         val v = prefs(context).all["save_duration"]
         return when (v) {

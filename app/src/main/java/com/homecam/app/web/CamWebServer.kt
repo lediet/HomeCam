@@ -95,7 +95,9 @@ class CamWebServer(
             "detection_modes" to mapOf(
                 "motion" to AppSettings.isMotionDetectionEnabled(context),
                 "cry" to AppSettings.isCryDetectionEnabled(context),
-                "sleep" to AppSettings.isSleepDetectionEnabled(context)
+                "sleep" to AppSettings.isSleepDetectionEnabled(context),
+                "fall" to AppSettings.isFallDetectionEnabled(context),
+                "phone" to AppSettings.isPhoneDetectionEnabled(context)
             ),
             "latest_event" to CameraService.latestEventType,
             "latest_event_time" to CameraService.latestEventTime,
