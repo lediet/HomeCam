@@ -62,6 +62,9 @@ object AppSettings {
     fun isPhoneDetectionEnabled(context: Context): Boolean =
         prefs(context).getBoolean("phone_detection", false)
 
+    fun getInferenceBackend(context: Context): String =
+        prefs(context).getString("inference_backend", "cpu") ?: "cpu"
+
     fun getSaveDurationSec(context: Context): Int {
         val v = prefs(context).all["save_duration"]
         return when (v) {

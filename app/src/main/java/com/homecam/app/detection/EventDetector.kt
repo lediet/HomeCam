@@ -8,6 +8,7 @@ import android.media.MediaRecorder
 import android.util.Log
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
+import com.google.mediapipe.tasks.core.Delegate
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
@@ -121,12 +122,24 @@ class EventDetector(
         }
     }
 
+    private fun createBaseOptions(modelPath: String): BaseOptions {
+        val backend = AppSettings.getInferenceBackend(context)
+        val delegate = when (backend) {
+            "gpu" -> Delegate.GPU
+            "xnnpack" -> Delegate.CPU
+            else -> Delegate.CPU
+        }
+        Log.d(TAG, "Inference backend: $backend -> delegate=$delegate for $modelPath")
+        return BaseOptions.builder()
+            .setModelAssetPath(modelPath)
+            .setDelegate(delegate)
+            .build()
+    }
+
     fun initVisualDetector() {
         Log.d(TAG, "initVisualDetector() start")
         try {
-            val baseOptions = BaseOptions.builder()
-                .setModelAssetPath("efficientdet_lite0.tflite")
-                .build()
+            val baseOptions = createBaseOptions("efficientdet_lite0.tflite")
 
             val options = ObjectDetector.ObjectDetectorOptions.builder()
                 .setBaseOptions(baseOptions)
@@ -145,7 +158,7 @@ class EventDetector(
     fun initAudioDetector() {
         Log.d(TAG, "initAudioDetector() start")
         try {
-            audioClassifier = AudioClassifier.createFromFile(context, "yamnet.tflite")
+audioClassifier = AudioClassifier.createFromFile(context, "yamnet.tflite")
             Log.d(TAG, "initAudioDetector() success")
         } catch (e: Exception) {
             Log.e(TAG, "initAudioDetector() FAILED - model file missing or incompatible", e)
@@ -260,9 +273,7 @@ class EventDetector(
     fun initSleepDetector() {
         Log.d(TAG, "initSleepDetector() start")
         try {
-            val baseOptions = BaseOptions.builder()
-                .setModelAssetPath("face_landmarker.task")
-                .build()
+            val baseOptions = createBaseOptions("face_landmarker.task")
             val options = FaceLandmarker.FaceLandmarkerOptions.builder()
                 .setBaseOptions(baseOptions)
                 .setRunningMode(RunningMode.IMAGE)
@@ -277,9 +288,7 @@ class EventDetector(
     fun initPoseDetector() {
         Log.d(TAG, "initPoseDetector() start")
         try {
-            val baseOptions = BaseOptions.builder()
-                .setModelAssetPath("pose_landmarker.task")
-                .build()
+            val baseOptions = createBaseOptions("pose_landmarker.task")
             val options = PoseLandmarker.PoseLandmarkerOptions.builder()
                 .setBaseOptions(baseOptions)
                 .setRunningMode(RunningMode.IMAGE)
@@ -298,9 +307,7 @@ class EventDetector(
     fun initHandDetector() {
         Log.d(TAG, "initHandDetector() start")
         try {
-            val baseOptions = BaseOptions.builder()
-                .setModelAssetPath("hand_landmarker.task")
-                .build()
+            val baseOptions = createBaseOptions("hand_landmarker.task")
             val options = HandLandmarker.HandLandmarkerOptions.builder()
                 .setBaseOptions(baseOptions)
                 .setRunningMode(RunningMode.IMAGE)

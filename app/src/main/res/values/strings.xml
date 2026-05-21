@@ -57,6 +57,10 @@
     <string name="pref_phone_detection">玩手机检测</string>
     <string name="pref_phone_detection_summary">AI手势识别玩手机行为</string>
     <string name="pref_depends_motion">需开启人物移动检测</string>
+    <string name="pref_inference_backend">推理后端</string>
+    <string name="pref_inference_backend_summary">选择AI推理加速方式</string>
+    <string name="pref_inference_cpu">CPU（兼容性最佳）</string>
+    <string name="pref_inference_gpu">GPU（速度最快，更耗电）</string>
     <string name="pref_category_recording">录像</string>
     <string name="pref_save_duration">触发保存时长(前后)</string>
     <string name="pref_save_duration_summary">前后各 %1$d 秒</string>

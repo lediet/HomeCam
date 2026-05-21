@@ -120,6 +120,19 @@ class SettingsActivity : AppCompatActivity() {
             }
             detectionCategory.addPreference(detectionInterval)
 
+            val inferenceBackend = ListPreference(context).apply {
+                key = "inference_backend"
+                title = getString(R.string.pref_inference_backend)
+                summary = getString(R.string.pref_inference_backend_summary)
+                entries = arrayOf(
+                    getString(R.string.pref_inference_cpu),
+                    getString(R.string.pref_inference_gpu),
+                )
+                entryValues = arrayOf("cpu", "gpu")
+                setDefaultValue("cpu")
+            }
+            detectionCategory.addPreference(inferenceBackend)
+
             val fallDetection = SwitchPreferenceCompat(context).apply {
                 key = "fall_detection"
                 title = getString(R.string.pref_fall_detection)

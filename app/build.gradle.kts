@@ -13,7 +13,7 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 9
-        versionName = "1.5.0"
+        versionName = "1.5.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -80,7 +80,7 @@ dependencies {
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
 
-    // MediaPipe Object Detection
+    // MediaPipe Object Detection + GPU delegate
     implementation("com.google.mediapipe:tasks-vision:0.10.8")
 
     // TensorFlow Lite
