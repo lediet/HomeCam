@@ -53,7 +53,7 @@ class EventDetector(
 
     private val cryLabels = setOf("Crying", "Crying, sobbing", "Baby cry, infant cry", "Sobbing")
 
-    private val animalLabels = setOf("cat", "dog", "bird")
+    private var detectionTarget: String = AppSettings.getDetectionTarget(context)
 
     // Sleep detection via FaceLandmarker
     private var faceLandmarker: FaceLandmarker? = null
@@ -107,7 +107,7 @@ class EventDetector(
 
     private var occupancyState = OccupancyState.EMPTY
     private var lastOccupiedTime = 0L
-    private val occupancyTimeoutMs = 30000L
+    private val occupancyTimeoutMs = 120000L
     @Volatile
     var currentOccupantLabel: String = ""
         private set
@@ -173,6 +173,8 @@ audioClassifier = AudioClassifier.createFromFile(context, "yamnet.tflite")
         if (frameCounter % interval != 0) return
         if (isProcessing) return
 
+        detectionTarget = AppSettings.getDetectionTarget(context)
+
         // Clear stale overlay before new detection
         lastBoxRect = null
         lastPhoneRect = null
@@ -199,8 +201,7 @@ audioClassifier = AudioClassifier.createFromFile(context, "yamnet.tflite")
 
                     if (score <= 0.5f) continue
 
-                    val isPerson = categoryName.equals("person", ignoreCase = true)
-                    val isAnimal = animalLabels.any { categoryName.equals(it, ignoreCase = true) }
+                    val isTarget = categoryName.equals(detectionTarget, ignoreCase = true)
                     val isCellPhone = categoryName.equals("cell phone", ignoreCase = true)
 
                     if (isCellPhone) {
@@ -208,7 +209,7 @@ audioClassifier = AudioClassifier.createFromFile(context, "yamnet.tflite")
                         lastPhoneScore = score
                     }
 
-                    if (isPerson || isAnimal) {
+                    if (isTarget) {
                         if (!personFound) {
                             lastBoxRect = detection.boundingBox()
                             lastBoxLabel = categoryName
@@ -247,7 +248,7 @@ audioClassifier = AudioClassifier.createFromFile(context, "yamnet.tflite")
             }
 
             // --- Fall detection (only when person detected) ---
-            if (personFound && AppSettings.isFallDetectionEnabled(context)) {
+            if (personFound && AppSettings.isFallDetectionEnabled(context) && detectionTarget == "person") {
                 val personRect = lastPersonRect ?: lastBoxRect
                 if (personRect != null) {
                     analyzeFall(bitmap, personRect)
@@ -255,7 +256,7 @@ audioClassifier = AudioClassifier.createFromFile(context, "yamnet.tflite")
             }
 
             // --- Phone detection (only when person detected) ---
-            if (personFound && AppSettings.isPhoneDetectionEnabled(context)) {
+            if (personFound && AppSettings.isPhoneDetectionEnabled(context) && detectionTarget == "person") {
                 analyzePhone(bitmap)
             }
         } catch (e: Exception) {

@@ -65,6 +65,9 @@ object AppSettings {
     fun getInferenceBackend(context: Context): String =
         prefs(context).getString("inference_backend", "cpu") ?: "cpu"
 
+    fun getDetectionTarget(context: Context): String =
+        prefs(context).getString("detection_target", "person") ?: "person"
+
     fun getSaveDurationSec(context: Context): Int {
         val v = prefs(context).all["save_duration"]
         return when (v) {

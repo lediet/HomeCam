@@ -72,4 +72,9 @@
     <string name="pref_detection_interval">检测频率</string>
     <string name="detection_time_label">单帧检测耗时</string>
     <string name="exit_confirm">再按一次退出应用</string>
+    <string name="pref_detection_settings">检测设置</string>
+    <string name="pref_detection_settings_collapsed">点击展开</string>
+    <string name="pref_detection_settings_expanded">点击收起</string>
+    <string name="pref_detection_target">检测类别</string>
+    <string name="pref_detection_target_summary">选择需要检测的目标类型</string>
 </resources>

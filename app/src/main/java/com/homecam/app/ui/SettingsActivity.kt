@@ -110,8 +110,26 @@ class SettingsActivity : AppCompatActivity() {
             }
             detectionCategory.addPreference(motionDetection)
 
+            val detectionSettingsHeader = Preference(context).apply {
+                key = "detection_settings_header"
+                title = getString(R.string.pref_detection_settings)
+                summary = getString(R.string.pref_detection_settings_collapsed)
+            }
+            detectionCategory.addPreference(detectionSettingsHeader)
+
+            val detectionTarget = ListPreference(context).apply {
+                key = "detection_target"
+                title = getString(R.string.pref_detection_target)
+                summary = getString(R.string.pref_detection_target_summary)
+                entries = arrayOf("人", "猫", "狗", "鸟")
+                entryValues = arrayOf("person", "cat", "dog", "bird")
+                setDefaultValue("person")
+            }
+            detectionCategory.addPreference(detectionTarget)
+
             val detectionInterval = ListPreference(context).apply {
                 key = "detection_interval"
+                isVisible = false
                 title = getString(R.string.pref_detection_interval)
                 entries = arrayOf("每 1 帧", "每 2 帧", "每 3 帧", "每 5 帧", "每 10 帧")
                 entryValues = arrayOf("1", "2", "3", "5", "10")
@@ -122,6 +140,7 @@ class SettingsActivity : AppCompatActivity() {
 
             val inferenceBackend = ListPreference(context).apply {
                 key = "inference_backend"
+                isVisible = false
                 title = getString(R.string.pref_inference_backend)
                 summary = getString(R.string.pref_inference_backend_summary)
                 entries = arrayOf(
@@ -204,6 +223,16 @@ class SettingsActivity : AppCompatActivity() {
             recordingCategory.addPreference(maxVideoCount)
 
             preferenceScreen = screen
+
+            var settingsExpanded = false
+            detectionSettingsHeader.onPreferenceClickListener = Preference.OnPreferenceClickListener {
+                settingsExpanded = !settingsExpanded
+                detectionTarget.isVisible = settingsExpanded
+                detectionInterval.isVisible = settingsExpanded
+                inferenceBackend.isVisible = settingsExpanded
+                detectionSettingsHeader.summary = getString(if (settingsExpanded) R.string.pref_detection_settings_expanded else R.string.pref_detection_settings_collapsed)
+                true
+            }
 
             // Manual dependency: disable sub-switches when motion detection is off
             val motionDeps = mapOf(
