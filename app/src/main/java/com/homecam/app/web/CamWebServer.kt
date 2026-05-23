@@ -56,6 +56,7 @@ class CamWebServer(
             uri == "/api/videos" -> serveVideoList()
             uri.startsWith("/videos/") -> serveVideoFile(uri)
             uri == "/api/frame.jpg" -> serveFrameJpeg()
+            uri == "/api/diag/dump" -> serveDiagDump(session)
             else -> newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Not Found")
         }
     }
@@ -72,6 +73,12 @@ class CamWebServer(
     }
 
     private fun serveMjpegStream(): Response {
+        if (!AppSettings.isMjpgEnabled(context)) {
+            return newFixedLengthResponse(
+                Response.Status.SERVICE_UNAVAILABLE, MIME_PLAINTEXT,
+                "MJPEG streaming disabled"
+            )
+        }
         val service = ServiceManager.instance
             ?: return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, MIME_PLAINTEXT, "Service not running")
 
@@ -104,7 +111,11 @@ class CamWebServer(
             "latest_event_label" to CameraService.latestEventLabel,
             "current_camera_id" to AppSettings.getCameraId(context),
             "current_logical_camera_id" to AppSettings.getLogicalCameraId(context),
-            "camera_powered" to CameraService.cameraPoweredOn.get()
+            "camera_powered" to CameraService.cameraPoweredOn.get(),
+            "rtsp_url" to "rtsp://$ip:${AppSettings.getRtspPort(context)}/live",
+            "rtsp_enabled" to AppSettings.isRtspEnabled(context),
+            "mjpg_url" to "http://$ip:$port",
+            "mjpg_enabled" to AppSettings.isMjpgEnabled(context)
         )
 
         return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(status))
@@ -175,6 +186,42 @@ class CamWebServer(
             Response.Status.OK, "image/jpeg",
             ByteArrayInputStream(frame.second), frame.second.size.toLong()
         )
+    }
+
+    /**
+     * Diagnostic: Start/stop raw H.264 bitstream dump.
+     * Usage:
+     *   GET /api/diag/dump?action=start  — starts dump to cache dir
+     *   GET /api/diag/dump?action=stop   — stops dump, returns file path
+     *   The .264 file can be analyzed with: ffprobe -show_frames dump.264
+     */
+    private fun serveDiagDump(session: IHTTPSession): Response {
+        val action = session.parms["action"] ?: ""
+        val service = ServiceManager.instance
+            ?: return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, "application/json",
+                gson.toJson(mapOf("error" to "Service not running")))
+
+        val encoder = service.h264Encoder
+            ?: return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, "application/json",
+                gson.toJson(mapOf("error" to "H264Encoder not initialized, wait for first frame")))
+
+        return when (action) {
+            "start" -> {
+                val filePath = context.cacheDir.absolutePath + "/h264_dump.264"
+                encoder.startDump(filePath)
+                newFixedLengthResponse(Response.Status.OK, "application/json",
+                    gson.toJson(mapOf("status" to "started", "path" to filePath)))
+            }
+            "stop" -> {
+                encoder.stopDump()
+                newFixedLengthResponse(Response.Status.OK, "application/json",
+                    gson.toJson(mapOf("status" to "stopped")))
+            }
+            else -> {
+                newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json",
+                    gson.toJson(mapOf("error" to "action must be 'start' or 'stop'")))
+            }
+        }
     }
 
     private fun serveCameraList(): Response {
@@ -309,7 +356,8 @@ class CamWebServer(
                     val ip = getLocalIpAddress()
                     val port = AppSettings.getWebPort(context)
                     val name = "HomeCam-" + deviceId.takeLast(6)
-                    val response = "HOMECAM_RESPONSE|" + name + "|" + ip + "|" + port + "|" + deviceId
+                    val rtspPort = AppSettings.getRtspPort(context)
+                    val response = "HOMECAM_RESPONSE|" + name + "|" + ip + "|" + port + "|" + deviceId + "|" + rtspPort
                     val responseBytes = response.toByteArray(Charsets.UTF_8)
                     val responsePacket = DatagramPacket(
                         responseBytes, responseBytes.size,

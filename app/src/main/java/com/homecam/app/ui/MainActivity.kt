@@ -51,6 +51,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var detectionTime: TextView
     private lateinit var recordingSwitch: androidx.appcompat.widget.SwitchCompat
     private lateinit var eventLog: TextView
+    private lateinit var rtspUrlText: TextView
+    private lateinit var mjpgUrlText: TextView
     private var backPressedTime = 0L
     private val backPressInterval = 2000L
 
@@ -123,6 +125,8 @@ class MainActivity : AppCompatActivity() {
             recordingSwitch = findViewById(R.id.recording_switch)
             eventLog = findViewById(R.id.event_log)
             eventLog.movementMethod = ScrollingMovementMethod()
+            rtspUrlText = findViewById(R.id.rtsp_url_text)
+            mjpgUrlText = findViewById(R.id.mjpg_url_text)
             Log.d(TAG, "findViewById all done")
         } catch (e: Exception) {
             Log.e(TAG, "findViewById FAILED", e)
@@ -283,6 +287,8 @@ class MainActivity : AppCompatActivity() {
 
             recordingSwitch.isChecked = CameraService.recordingEnabled
             recordingSwitch.visibility = if (CameraService.isRunning.get()) TextView.VISIBLE else TextView.GONE
+
+            updateStreamUrls(running)
         } catch (e: Exception) {
             Log.e(TAG, "updateUI FAILED", e)
         }
@@ -317,7 +323,44 @@ class MainActivity : AppCompatActivity() {
         eventLog.text = lines
     }
 
+    private fun updateStreamUrls(running: Boolean) {
+        if (!running) {
+            rtspUrlText.visibility = TextView.GONE
+            mjpgUrlText.visibility = TextView.GONE
+            return
+        }
+        val ip = getLocalIpAddress()
+        if (AppSettings.isRtspEnabled(this)) {
+            val rtspPort = AppSettings.getRtspPort(this)
+            rtspUrlText.text = "RTSP: rtsp://$ip:$rtspPort/live"
+            rtspUrlText.visibility = TextView.VISIBLE
+        } else {
+            rtspUrlText.visibility = TextView.GONE
+        }
+        if (AppSettings.isMjpgEnabled(this)) {
+            val webPort = AppSettings.getWebPort(this)
+            mjpgUrlText.text = "MJPEG: http://$ip:$webPort"
+            mjpgUrlText.visibility = TextView.VISIBLE
+        } else {
+            mjpgUrlText.visibility = TextView.GONE
+        }
+    }
+
     private fun checkPermissionsAndStart() {
+        // Check that at least one streaming method is enabled
+        if (!AppSettings.isMjpgEnabled(this) && !AppSettings.isRtspEnabled(this)) {
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(getString(R.string.stream_warning_title))
+                .setMessage(getString(R.string.stream_warning_message))
+                .setPositiveButton("去设置") { _, _ ->
+                    val intent = Intent(this, SettingsActivity::class.java)
+                    startActivity(intent)
+                }
+                .setNegativeButton("取消", null)
+                .show()
+            return
+        }
+
         val ungranted = requiredPermissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }

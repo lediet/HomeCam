@@ -28,7 +28,9 @@ import com.homecam.app.R
 import com.homecam.app.detection.EventDetector
 import com.homecam.app.recorder.FrameBuffer
 import com.homecam.app.recorder.VideoRecorder
+import com.homecam.app.stream.H264Encoder
 import com.homecam.app.stream.MjpegStreamer
+import com.homecam.app.stream.RtspServer
 import com.homecam.app.web.CamWebServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -92,6 +94,8 @@ class CameraService : LifecycleService() {
     private var wakeLock: PowerManager.WakeLock? = null
 
     val streamer = MjpegStreamer()
+    var h264Encoder: H264Encoder? = null
+    var rtspServer: RtspServer? = null
     lateinit var frameBuffer: FrameBuffer
     var videoRecorder: VideoRecorder? = null
     lateinit var eventDetector: EventDetector
@@ -163,6 +167,8 @@ class CameraService : LifecycleService() {
                         closeCamera2()
                         cameraProvider?.unbindAll()
                         streamer.clear()
+                        h264Encoder?.stop()
+                        h264Encoder = null
                     }
                     Log.d(TAG, "Camera power ${if (powerOn) "on" else "off"} done")
                 } catch (e: Exception) {
@@ -209,6 +215,9 @@ class CameraService : LifecycleService() {
 
         try { startWebServer(); Log.d(TAG, "startWebServer() done") }
         catch (e: Exception) { Log.e(TAG, "startWebServer FAILED", e) }
+
+        try { startRtspServer(); Log.d(TAG, "startRtspServer() done") }
+        catch (e: Exception) { Log.e(TAG, "startRtspServer FAILED", e) }
 
         return START_STICKY
     }
@@ -268,141 +277,32 @@ class CameraService : LifecycleService() {
         val targetCameraId = AppSettings.getCameraId(this)
         val logicalCameraId = AppSettings.getLogicalCameraId(this)
 
-        // If target is NOT in CameraX (e.g. hidden physical camera on MIUI), use Camera2 directly
-        if (targetCameraId != logicalCameraId) {
-            // Unbind CameraX first to avoid resource conflict
-            cameraProvider?.unbindAll()
-            Handler(Looper.getMainLooper()).postDelayed({
-                closeCamera2()
-                initCamera2(logicalCameraId, targetCameraId)
-            }, 500)
-            return
-        }
-
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
-
-        cameraProviderFuture.addListener({
-            try {
-                cameraProvider = cameraProviderFuture.get()
-                Log.d(TAG, "ProcessCameraProvider obtained")
-
-                // Double-check: if target camera is not in CameraX, fall back to Camera2
-                val infos = cameraProvider?.availableCameraInfos
-                val inCameraX = infos?.any { info ->
-                    try { Camera2CameraInfo.from(info).cameraId == targetCameraId } catch (e: Exception) { false }
-                } == true
-
-                if (inCameraX) {
-                    bindCameraUseCases()
-                } else {
-                    Log.w(TAG, "Camera $targetCameraId not in CameraX, switching to Camera2")
-                    // Unbind CameraX first to avoid conflict
-                    cameraProvider?.unbindAll()
-                    Handler(Looper.getMainLooper()).postDelayed({
-                        closeCamera2()
-                        initCamera2(logicalCameraId, targetCameraId)
-                    }, 500)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Camera init failed", e)
-            }
-        }, ContextCompat.getMainExecutor(this))
+        // Always use Camera2 for full resolution control
+        Handler(Looper.getMainLooper()).postDelayed({
+            closeCamera2()
+            initCamera2(logicalCameraId, targetCameraId)
+        }, 200)
     }
 
-    private fun bindCameraUseCases() {
-        val provider = cameraProvider ?: return
-        provider.unbindAll()
-
-        val imageAnalysis = ImageAnalysis.Builder()
-            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
-            .build()
-
-        imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
-            processFrame(imageProxy)
-        }
-
-        try {
-            val targetCameraId = AppSettings.getCameraId(this)
-            val logicalCameraId = AppSettings.getLogicalCameraId(this)
-            val infos = provider.availableCameraInfos
-
-            // Diagnostic: log all CameraX camera IDs
-            val allIds = infos.mapNotNull { info ->
-                try { Camera2CameraInfo.from(info).cameraId } catch (e: Exception) { null }
-            }
-            Log.d(TAG, "CameraX availableCameraInfos: $allIds (count=${infos.size})")
-
-            val cameraSelector = try {
-                // Try 1: match physical camera ID directly
-                val physicalMatch = infos.filter { info ->
-                    Camera2CameraInfo.from(info).cameraId == targetCameraId
-                }
-                if (physicalMatch.isNotEmpty()) {
-                    CameraSelector.Builder()
-                        .addCameraFilter { listOfNotNull(physicalMatch.firstOrNull()) }
-                        .build()
-                } else if (targetCameraId != logicalCameraId) {
-                    // Try 2: physical camera not found, fall back to logical camera
-                    val logicalMatch = infos.filter { info ->
-                        Camera2CameraInfo.from(info).cameraId == logicalCameraId
-                    }
-                    if (logicalMatch.isNotEmpty()) {
-                        Log.w(TAG, "Physical camera $targetCameraId not in CameraX, using logical $logicalCameraId")
-                        CameraSelector.Builder()
-                            .addCameraFilter { listOfNotNull(logicalMatch.firstOrNull()) }
-                            .build()
-                    } else {
-                        val idx = AppSettings.getCameraIndex(this).coerceIn(0, infos.size - 1)
-                        if (infos.isNotEmpty() && idx in infos.indices) {
-                            CameraSelector.Builder()
-                                .addCameraFilter { listOfNotNull(infos.getOrNull(idx)) }
-                                .build()
-                        } else {
-                            CameraSelector.DEFAULT_BACK_CAMERA
-                        }
-                    }
-                } else {
-                    val idx = AppSettings.getCameraIndex(this).coerceIn(0, infos.size - 1)
-                    if (infos.isNotEmpty() && idx in infos.indices) {
-                        CameraSelector.Builder()
-                            .addCameraFilter { listOfNotNull(infos.getOrNull(idx)) }
-                            .build()
-                    } else {
-                        CameraSelector.DEFAULT_BACK_CAMERA
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Camera selector failed, using default", e)
-                CameraSelector.DEFAULT_BACK_CAMERA
-            }
-
-            provider.bindToLifecycle(this, cameraSelector, imageAnalysis)
-            Log.d(TAG, "Camera bound: id=$targetCameraId, logical=$logicalCameraId, total=${infos.size}")
-        } catch (e: Exception) {
-            Log.e(TAG, "Bind camera failed", e)
-        }
-    }
 
     // region Camera2 implementation (for hidden physical cameras)
 
     private fun getCamera2OutputSize(manager: CameraManager, cameraId: String): android.util.Size {
         return try {
             val chars = manager.getCameraCharacteristics(cameraId)
-            val config = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return android.util.Size(1280, 720)
-            val sizes = config.getOutputSizes(ImageFormat.YUV_420_888) ?: return android.util.Size(1280, 720)
-            // Pick the largest size <= 1280x720 that preserves 4:3 aspect ratio
+            val config = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return android.util.Size(960, 720)
+            val sizes = config.getOutputSizes(ImageFormat.YUV_420_888) ?: return android.util.Size(960, 720)
+            // Pick the largest size <= 960x720
             var best = android.util.Size(640, 480)
             for (s in sizes) {
-                if (s.width <= 1280 && s.height <= 720 && s.width.toLong() * s.height > best.width.toLong() * best.height) {
+                if (s.width <= 960 && s.height <= 720 && s.width.toLong() * s.height > best.width.toLong() * best.height) {
                     best = s
                 }
             }
             best
         } catch (e: Exception) {
             Log.e(TAG, "getCamera2OutputSize failed", e)
-            android.util.Size(1280, 720)
+            android.util.Size(960, 720)
         }
     }
 
@@ -546,7 +446,7 @@ class CameraService : LifecycleService() {
         return try {
             val chars = manager.getCameraCharacteristics(cameraId)
             val degrees = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
-            if (facing == CameraCharacteristics.LENS_FACING_FRONT) (360 - degrees) % 360 else degrees
+            degrees
         } catch (e: Exception) {
             0
         }
@@ -587,8 +487,13 @@ class CameraService : LifecycleService() {
                     .get(CameraCharacteristics.LENS_FACING) ?: CameraCharacteristics.LENS_FACING_BACK
             } catch (e: Exception) { CameraCharacteristics.LENS_FACING_BACK }
             val rotation = getSensorOrientation(manager, camera2LogicalId ?: "0", facing)
-            val rotatedBitmap = if (rotation != 0) {
-                val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+            val rotatedBitmap = if (rotation != 0 || facing == CameraCharacteristics.LENS_FACING_FRONT) {
+                val matrix = Matrix().apply {
+                    postRotate(rotation.toFloat())
+                    if (facing == CameraCharacteristics.LENS_FACING_FRONT) {
+                        postScale(-1f, 1f)
+                    }
+                }
                 Bitmap.createBitmap(croppedBitmap, 0, 0, croppedBitmap.width, croppedBitmap.height, matrix, true).also {
                     croppedBitmap.recycle()
                 }
@@ -616,8 +521,12 @@ class CameraService : LifecycleService() {
             eventDetector.applyDetectionOverlay(scaledBitmap)
             latestDetectionMs = eventDetector.lastDetectionMs
 
+            // Feed to H.264 encoder for RTSP streaming
+            ensureEncoder(scaledBitmap.width, scaledBitmap.height)
+            h264Encoder?.feedFrame(scaledBitmap, timestamp)
+
             val jpegData = compressToJpeg(scaledBitmap, currentJpegQuality)
-            streamer.pushFrame(jpegData)
+            if (AppSettings.isMjpgEnabled(this)) streamer.pushFrame(jpegData)
             frameBuffer.addFrame(timestamp, jpegData)
 
             adjustJpegQuality()
@@ -693,9 +602,13 @@ class CameraService : LifecycleService() {
             eventDetector.applyDetectionOverlay(scaledBitmap)
             latestDetectionMs = eventDetector.lastDetectionMs
 
+            // Feed to H.264 encoder for RTSP streaming
+            ensureEncoder(scaledBitmap.width, scaledBitmap.height)
+            h264Encoder?.feedFrame(scaledBitmap, timestamp)
+
             val jpegData = compressToJpeg(scaledBitmap, currentJpegQuality)
 
-            streamer.pushFrame(jpegData)
+            if (AppSettings.isMjpgEnabled(this)) streamer.pushFrame(jpegData)
             frameBuffer.addFrame(timestamp, jpegData)
 
             adjustJpegQuality()
@@ -887,6 +800,41 @@ class CameraService : LifecycleService() {
         Log.d(TAG, "Web server started on port $port")
     }
 
+    private fun startRtspServer() {
+        if (!AppSettings.isRtspEnabled(this)) {
+            Log.d(TAG, "RTSP server disabled in settings")
+            return
+        }
+        val port = AppSettings.getRtspPort(this)
+        rtspServer = RtspServer().also {
+            it.setEncoder(h264Encoder)
+            it.start(port)
+        }
+        Log.d(TAG, "RTSP server started on port $port")
+    }
+
+    private fun ensureEncoder(width: Int, height: Int) {
+        if (h264Encoder?.isRunning() == true) return
+        // Stop existing encoder if dimensions changed
+        if (h264Encoder != null) {
+            h264Encoder?.stop()
+            h264Encoder = null
+        }
+        val fps = AppSettings.getFps(this)
+        val encoder = H264Encoder(width, height, fps) { nalUnits, timestampUs ->
+            rtspServer?.feedH264Nalu(nalUnits, timestampUs)
+        }
+        encoder.start()
+        h264Encoder = encoder
+        rtspServer?.let { server ->
+            server.setEncoder(encoder)
+            server.setVideoParams(width, height, fps)
+        }
+        // Warm up to produce CSD (SPS/PPS) immediately for SDP generation
+        encoder.warmUp()
+        Log.d(TAG, "H264Encoder initialized: ${width}x${height} @ ${fps}fps")
+    }
+
     override fun onDestroy() {
         Log.d(TAG, "onDestroy()")
         super.onDestroy()
@@ -901,6 +849,8 @@ class CameraService : LifecycleService() {
         webServer?.stopUdpDiscovery()
         streamer.clear()
         webServer?.stop()
+        h264Encoder?.stop()
+        rtspServer?.stop()
         wakeLock?.let { if (it.isHeld) it.release() }
         cameraExecutor.shutdownNow()
 

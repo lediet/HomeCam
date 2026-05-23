@@ -5,4 +5,6 @@
     <color name="colorAccent">#e94560</color>
     <color name="statusOn">#4CAF50</color>
     <color name="statusOff">#9E9E9E</color>
+    <color name="colorRtspUrl">#ffa726</color>
+    <color name="colorMjpgUrl">#4caf50</color>
 </resources>

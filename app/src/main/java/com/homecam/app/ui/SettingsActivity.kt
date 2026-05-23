@@ -9,6 +9,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import com.homecam.app.R
+import com.homecam.app.service.AppSettings
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -96,6 +97,30 @@ class SettingsActivity : AppCompatActivity() {
                 summaryProvider = androidx.preference.EditTextPreference.SimpleSummaryProvider.getInstance()
             }
             networkCategory.addPreference(webPort)
+
+            val rtspEnabled = SwitchPreferenceCompat(context).apply {
+                key = "rtsp_enabled"
+                title = "RTSP 流媒体"
+                summary = "启用 RTSP 流媒体（端口 " + AppSettings.getRtspPort(context) + "），供 NVR/HomeAssistant 等客户端使用"
+                setDefaultValue(true)
+            }
+            networkCategory.addPreference(rtspEnabled)
+
+            val rtspPort = androidx.preference.EditTextPreference(context).apply {
+                key = "rtsp_port"
+                title = "RTSP 端口"
+                setDefaultValue("8554")
+                summaryProvider = androidx.preference.EditTextPreference.SimpleSummaryProvider.getInstance()
+            }
+            networkCategory.addPreference(rtspPort)
+
+            val mjpgEnabled = SwitchPreferenceCompat(context).apply {
+                key = "mjpg_enabled"
+                title = getString(R.string.pref_mjpg_enabled)
+                summary = getString(R.string.pref_mjpg_enabled_summary)
+                setDefaultValue(true)
+            }
+            networkCategory.addPreference(mjpgEnabled)
 
             // Detection category
             val detectionCategory = PreferenceCategory(context).apply {

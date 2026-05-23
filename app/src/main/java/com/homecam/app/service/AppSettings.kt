@@ -47,6 +47,17 @@ object AppSettings {
         return value.toIntOrNull() ?: 8080
     }
 
+    fun getRtspPort(context: Context): Int {
+        val value = prefs(context).getString("rtsp_port", "8554") ?: "8554"
+        return value.toIntOrNull() ?: 8554
+    }
+
+    fun isRtspEnabled(context: Context): Boolean =
+        prefs(context).getBoolean("rtsp_enabled", true)
+
+    fun isMjpgEnabled(context: Context): Boolean =
+        prefs(context).getBoolean("mjpg_enabled", true)
+
     fun isMotionDetectionEnabled(context: Context): Boolean =
         prefs(context).getBoolean("motion_detection", true)
 

@@ -77,4 +77,10 @@
     <string name="pref_detection_settings_expanded">点击收起</string>
     <string name="pref_detection_target">检测类别</string>
     <string name="pref_detection_target_summary">选择需要检测的目标类型</string>
+
+    <!-- Streaming -->
+    <string name="pref_mjpg_enabled">MJPEG 推流</string>
+    <string name="pref_mjpg_enabled_summary">通过 HTTP 推送 MJPEG 视频流，供浏览器查看</string>
+    <string name="stream_warning_title">推流未开启</string>
+    <string name="stream_warning_message">请至少开启 MJPEG 或 RTSP 中的一种推流方式</string>
 </resources>
