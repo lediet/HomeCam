@@ -1,8 +1,8 @@
 # HomeCam v1.0 工作记录与技术文档
 
-**最后更新**：2026-05-19  
-**版本**：1.4.1  
-**状态**：v1.4.1 修复录像保存数量限制不生效、编码器崩溃问题；新增 MJPEG 自适应质量、时域帧丢弃；设置项列表化改造
+**最后更新**：2026-05-24  
+**版本**：1.6.0  
+**状态**：v1.6.0 检测画框标记独立开关 + 双线程检测管道；设置页 AI 检测折叠优化；事件类型文本映射补齐
 
 ---
 
@@ -43,7 +43,7 @@ HomeCam 是一款将闲置 Android 手机转化为局域网监控摄像头的应
 | 语言 | Kotlin | 1.9.22 |
 | 最低 SDK | Android 8.0 (API 26) | - |
 | 目标 SDK | Android 14 (API 34) | - |
-| 视频采集 | CameraX | 1.3.1 |
+| 视频采集 | Camera2 (YUV_420_888) | Framework |
 | HTTP 服务器 | NanoHTTPD | 2.3.1 |
 | 视频编码 | MediaCodec + MediaMuxer | Android Framework |
 | 人物检测 | MediaPipe Tasks Vision | 0.10.8 |
@@ -64,7 +64,7 @@ app/src/main/java/com/homecam/app/
 │   ├── VideoDao.kt              # Room DAO - 数据库操作
 │   └── VideoDatabase.kt         # Room Database - 单例
 ├── service/                     # 核心服务层
-│   ├── CameraService.kt         # 前台服务 - CameraX 采集 + 帧处理
+│   ├── CameraService.kt         # 前台服务 - Camera2 采集 + 帧处理中枢
 │   ├── AppSettings.kt           # 配置读取器
 │   └── ServiceManager.kt        # 服务实例全局访问
 ├── stream/                      # 流推送
@@ -111,11 +111,12 @@ app/src/main/res/
 ┌──────────────────────┴───────────────────────────────────────┐
 │                    服务层 (Foreground Service)                 │
 │  CameraService ────────────────────────────────────────────  │
-│  ├─ CameraX ImageAnalysis (帧采集)                           │
-│  ├─ processFrame() (帧处理中枢)                               │
+│  ├─ Camera2 YUV_420_888 (帧采集)                              │
+│  ├─ processCamera2Pixels() (帧处理中枢)                        │
 │  │   ├→ MjpegStreamer.pushFrame() (推流)                    │
 │  │   ├→ FrameBuffer.addFrame() (缓冲)                       │
-│  │   ├→ EventDetector.analyzeFrame() (检测)                 │
+│  │   ├→ (画框开启) EventDetector.analyzeFrame() (同线程检测)   │
+│  │   ├→ (画框关闭) detectExecutor.submit() (后台线程检测)      │
 │  │   └→ postEventFrames 收集 (录像)                          │
 │  ├─ EventDetector (AI 检测协调)                              │
 │  │   ├─ ObjectDetector (MediaPipe - 视觉)                   │
@@ -137,7 +138,7 @@ app/src/main/res/
 
 | 决策 | 选择 | 原因 |
 |------|------|------|
-| 视频采集 | CameraX ImageAnalysis | 兼容性好，支持后台采集，无需 Surface |
+| 视频采集 | Camera2 YUV_420_888 | 直接 Camera2 API，支持多摄组和物理摄像头 |
 | 流推送 | MJPEG over HTTP | 实现简单，浏览器原生支持 `<img>` 标签显示 |
 | 录像方式 | JPEG帧→MediaCodec→MP4 | 避免实时编码的开销，利用环形缓冲回溯事件前画面 |
 | 事件检测 | 每 N 帧检测一次 | 平衡准确性和性能，低端设备不会过载 |
@@ -165,11 +166,12 @@ app/src/main/res/
       → CameraService: stopSelf()
         → onDestroy()
           → ServiceManager.instance = null
-          → cameraProvider.unbindAll()
+          → closeCamera2()
           → eventDetector.release()
           → streamer.clear()
           → webServer.stop()
           → wakeLock.release()
+          → detectExecutor.shutdownNow()
           → cameraExecutor.shutdownNow()
 ```
 
@@ -197,19 +199,35 @@ app/src/main/res/
 | `eventDetector` | `EventDetector` | public lateinit | 事件检测器 |
 | `isRecordingEvent` | `Boolean` | private | 当前是否正在录制事件视频 |
 | `postEventFrames` | `MutableList` | private | 事件后帧收集列表 |
+| `detectExecutor` | `ExecutorService?` | private | 单线程检测池，画框关闭时后台检测不阻塞推流 |
+| `latestDetectionMs` | `Long` | public, @Volatile | 最新检测完成时间戳，供 UI 显示帧处理耗时 |
 
-#### 帧处理流程 (processFrame)
+#### 帧处理流程 (processCamera2Pixels)
 
+画框开启时（同线程检测）：
 ```
-ImageProxy (RGBA_8888)
-  → Bitmap (处理行步幅/padding)
-  → 旋转 (根据传感器旋转角度)
-  → 缩放 (到用户设置的分辨率)
+YUV_420_888 → ARGB IntArray
+  → rotateToUserRotation() → scaleBitmap()
   → JPEG 压缩 (quality=75)
   → streamer.pushFrame(jpegData)     [推流]
   → frameBuffer.addFrame(ts, jpeg)   [缓冲]
-  → eventDetector.analyzeFrame(bmp)  [检测]
+  → eventDetector.analyzeFrame(bmp)  [检测+画框]
   → postEventFrames.add(ts, jpeg)    [事件录像] (如果 isRecordingEvent)
+  → scaledBitmap.recycle()           [释放]
+```
+
+画框关闭时（双线程）：
+```
+YUV_420_888 → ARGB IntArray
+  → rotateToUserRotation() → scaleBitmap()
+  → JPEG 压缩 (quality=75)
+  → streamer.pushFrame(jpegData)     [推流，不等待检测]
+  → frameBuffer.addFrame(ts, jpeg)   [缓冲]
+  → 复制 bitmap → detectExecutor.execute { [后台检测]
+  │     eventDetector.analyzeFrame(copy, ts)
+  │     copy.recycle()
+  │   }
+  → postEventFrames.add(ts, jpeg)    [事件录像]
   → scaledBitmap.recycle()           [释放]
 ```
 
@@ -687,7 +705,23 @@ MJPEG 实时流。Content-Type: `multipart/x-mixed-replace; boundary=--boundary`
 
 | 配置项 | SharedPrefs Key | 类型 | 默认值 | 范围 | 生效时机 |
 |--------|-----------------|------|--------|------|----------|
-| 分辨率 | `resolution` | String | "640x480" | "640x480" / "1280x720" | 重启服务 |
+| 缩放比例 | `scale_factor` | String | "0.75" | "0.5"/"0.75"/"1.0" | 重启服务 |
+| 帧率 | `fps` | String | "15" | "15" / "30" | 重启服务 |
+| Web 端口 | `web_port` | String | "8080" | 1-65535 | 重启服务 |
+| RTSP 流媒体 | `rtsp_enabled` | Boolean | true | - | 重启服务 |
+| RTSP 端口 | `rtsp_port` | String | "8554" | 1-65535 | 重启服务 |
+| MJPEG 推流 | `mjpg_enabled` | Boolean | true | - | 重启服务 |
+| 人物移动检测 | `motion_detection` | Boolean | true | - | 实时 |
+| 检测类别 | `detection_target` | String | "person" | person/cat/dog/bird | 重启服务 |
+| 检测频率 | `detection_interval` | String | "3" | 1/2/3/5/10 | 实时 |
+| 推理后端 | `inference_backend` | String | "cpu" | cpu/gpu | 重启服务 |
+| 检测标记 | `detection_overlay` | Boolean | true | - | 实时 |
+| 婴儿哭声检测 | `cry_detection` | Boolean | false | - | 重启服务 |
+| 睡眠检测 | `sleep_detection` | Boolean | false | - | 重启服务 |
+| 跌倒检测 | `fall_detection` | Boolean | false | - | 需开启人物移动检测 |
+| 玩手机检测 | `phone_detection` | Boolean | false | - | 需开启人物移动检测 |
+| 保存时长(前后) | `save_duration` | String | "3" | "2"/"3"/"4"/"5" | 下次事件触发 |
+| 最大视频数 | `max_video_count` | String | "50" | "10"/"50"/"100"/"200"/"500"/"1000" | 下次保存后清理 |"640x480" | "640x480" / "1280x720" | 重启服务 |
 | 帧率 | `fps` | String | "15" | "15" / "30" | 重启服务 |
 | Web 端口 | `web_port` | String | "8080" | 1-65535 | 重启服务 |
 | 人物移动检测 | `motion_detection` | Boolean | true | - | 重启服务 |
@@ -1415,5 +1449,44 @@ implementation("androidx.camera:camera-core:$cameraxVersion")
 
 ---
 
-*文档结束 — HomeCam v1.5.0 工作记录*
+### v1.6.0 (2026-05-24) — 检测画框标记开关 + 双线程检测管道 + 设置页优化
+
+#### 新增
+
+1. **检测画框标记独立开关** (`detection_overlay`)
+   - 关闭后人物事件检测继续运行和报警，但不在视频流上画框和标签
+   - 默认开启，兼容旧版本行为
+   - 设置项位于"AI检测"/"详细检测设置"折叠菜单内，带缩进和小字样式
+
+2. **双线程检测管道**
+   - 新增 `detectExecutor`（单线程池），画框关闭时检测推理移到后台线程
+   - 画框开启时保持原行为：检测在主线程（cameraExecutor）跑，画在原图上
+   - 新增 `latestDetectionMs` volatile 字段供 UI 读取检测完成时间
+   - 后台检测使用 `bitmap.copy(ARGB_8888, false)` 避免线程安全问题
+
+3. **设置页 AI 检测折叠优化**
+   - 检测类别、检测频率、推理后端、检测标记 四项移入"详细检测设置"折叠菜单
+   - 折叠项使用 `SpannableString + RelativeSizeSpan(0.85f)` 缩进+小字样式
+   - 修复首次打开时检测类别未折叠的 bug（补上 `isVisible = false`）
+
+#### 技术调整
+
+- CameraX `ImageAnalysis` → Camera2 `YUV_420_888` 直接采集（已在 v1.2.2 开始，v1.6.0 更新文档）
+- CameraService 帧处理流程重命名：`processFrame()` → `processCamera2Pixels()`
+- 新增 `detectExecutor: ExecutorService?` 字段，`onDestroy()` 中 `shutdownNow()`
+- SettingsActivity：`indentPref()` 工具函数，`detectionSettingsHeader` 展开/折叠切换
+- 版本号：versionCode = 9, versionName = "1.6.0"
+
+#### 修改文件清单
+
+| 文件 | 改动 |
+|------|------|
+| `service/CameraService.kt` | 新增 detectExecutor、latestDetectionMs；processCamera2Pixels 双线程分支；onDestroy shutdown |
+| `service/AppSettings.kt` | 新增 `isOverlayEnabled()` |
+| `ui/SettingsActivity.kt` | 新增 detectionOverlay 开关；折叠检测设置+indentPref；修复检测类别折叠 bug |
+| `res/values/strings.xml` | 新增 `pref_detection_overlay`、`pref_detection_overlay_summary` |
+
+---
+
+*文档结束 — HomeCam v1.6.0 工作记录*
 
