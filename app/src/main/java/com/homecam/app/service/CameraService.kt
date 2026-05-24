@@ -709,6 +709,8 @@ class CameraService : LifecycleService() {
                 eventHistory.add(EventRecord(cleanType, now, label))
                 if (eventHistory.size > 1000) eventHistory.removeAt(0)
             }
+            // Embed event in RTSP H.264 stream via SEI NAL unit
+            rtspServer?.setPendingEvent(cleanType, now, label)
             sendBroadcast(Intent(ACTION_STATE_CHANGED))
         }
 

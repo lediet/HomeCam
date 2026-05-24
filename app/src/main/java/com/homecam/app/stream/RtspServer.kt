@@ -13,10 +13,12 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 
 /**
- * Minimal RTSP 1.0 server supporting H.264 streaming over RTP/AVP (UDP).
+ * Minimal RTSP 1.0 server supporting H.264 streaming over RTP/AVP (UDP)
+ * and RTP/AVP/TCP (interleaved).
  *
  * Supported methods: OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN, PAUSE
- * Transport: RTP/AVP;unicast;client_port=X-Y
+ * Transport: RTP/AVP;unicast;client_port=X-Y (UDP)
+ *            RTP/AVP/TCP;interleaved=X-Y (TCP interleaved)
  *
  * The server expects H.264 NAL units via feedH264Nalu() and packetizes them
  * into RTP packets sent to all PLAYING sessions.
@@ -60,6 +62,10 @@ class RtspServer {
 
     // Frame count for RTP timestamp calculation
     private var frameCount = 0L
+
+    // Pending event SEI NAL to inject on next feedH264Nalu call
+    @Volatile
+    private var pendingEventJson: ByteArray? = null
 
     fun setEncoder(encoder: H264Encoder?) {
         h264Encoder = encoder
@@ -122,8 +128,54 @@ class RtspServer {
 
         frameCount++
         // RTP timestamp: 90000 Hz clock
-        // timestampUs is microseconds from encoder, convert to 90kHz units
         val rtpTimestamp = ((timestampUs * RTP_CLOCK_HZ) / 1_000_000L) and 0xFFFFFFFFL
+
+        // Inject pending event SEI before video frames
+        pendingEventJson?.let { seiNal ->
+            pendingEventJson = null
+            Log.d(TAG, "Injecting SEI event (${seiNal.size}B) before frame #$frameCount")
+            val seiSeqStart = getNextSeqNum()
+            var seiSeqEnd = seiSeqStart
+            for (session in playingSessions) {
+                try {
+                    if (session.transportMode == RtspSession.TransportMode.TCP) {
+                        val tcpOut = session.tcpOutputStream ?: continue
+                        val result = packetizer.packetizeNaluRaw(
+                            nalu = seiNal,
+                            timestamp = rtpTimestamp,
+                            startSeqNum = seiSeqStart,
+                            marker = false
+                        )
+                        seiSeqEnd = result.nextSeqNum
+                        for (rtpData in result.packets) {
+                            tcpOut.write(0x24)
+                            tcpOut.write(session.interleavedRtpChannel)
+                            tcpOut.write((rtpData.size shr 8) and 0xFF)
+                            tcpOut.write(rtpData.size and 0xFF)
+                            tcpOut.write(rtpData)
+                        }
+                        tcpOut.flush()
+                    } else {
+                        val socket = session.serverSocket ?: continue
+                        val result = packetizer.packetizeNalu(
+                            nalu = seiNal,
+                            timestamp = rtpTimestamp,
+                            startSeqNum = seiSeqStart,
+                            marker = false,
+                            targetAddress = session.clientAddress,
+                            targetPort = session.clientRtpPort
+                        )
+                        seiSeqEnd = result.nextSeqNum
+                        for (pkt in result.packets) socket.send(pkt)
+                    }
+                    session.updateActivity()
+                } catch (e: Exception) {
+                    Log.w(TAG, "SEI send error to ${session.clientAddress}", e)
+                }
+            }
+            updateSeqNum(seiSeqEnd)
+        }
+
 
         // Diagnostic: log NAL unit types being sent
         if (frameCount <= 30 || frameCount % 150 == 0L) {
@@ -146,29 +198,57 @@ class RtspServer {
 
             for (session in playingSessions) {
                 try {
-                    val socket = session.serverSocket ?: continue
-                    val result = packetizer.packetizeNalu(
-                        nalu = cleanNalu,
-                        timestamp = rtpTimestamp,
-                        startSeqNum = startSeqNum,
-                        marker = isLastNalu,
-                        targetAddress = session.clientAddress,
-                        targetPort = session.clientRtpPort
-                    )
-                    endSeqNum = result.nextSeqNum
+                    if (session.transportMode == RtspSession.TransportMode.TCP) {
+                        val tcpOut = session.tcpOutputStream ?: continue
+                        val result = packetizer.packetizeNaluRaw(
+                            nalu = cleanNalu,
+                            timestamp = rtpTimestamp,
+                            startSeqNum = startSeqNum,
+                            marker = isLastNalu
+                        )
+                        endSeqNum = result.nextSeqNum
 
-                    // Send all packets
-                    var totalBytes = 0
-                    for (pkt in result.packets) {
-                        socket.send(pkt)
-                        totalBytes += pkt.length
-                    }
-                    session.updateActivity()
+                        // Write interleaved RTP: $ channel length data
+                        val channel = session.interleavedRtpChannel
+                        var totalBytes = 0
+                        for (rtpData in result.packets) {
+                            tcpOut.write(0x24)
+                            tcpOut.write(channel)
+                            tcpOut.write((rtpData.size shr 8) and 0xFF)
+                            tcpOut.write(rtpData.size and 0xFF)
+                            tcpOut.write(rtpData)
+                            totalBytes += rtpData.size
+                        }
+                        tcpOut.flush()
+                        session.updateActivity()
 
-                    // Diagnostic: log first few RTP sends
-                    if (frameCount <= 10) {
-                        Log.d(TAG, "RTP sent: ${result.packets.size} pkt(s), $totalBytes bytes " +
-                                "to ${session.clientAddress}:${session.clientRtpPort}")
+                        if (frameCount <= 10) {
+                            Log.d(TAG, "RTP interleaved: ${result.packets.size} pkt(s), $totalBytes bytes " +
+                                    "to ${session.clientAddress} TCP channel $channel")
+                        }
+                    } else {
+                        val socket = session.serverSocket ?: continue
+                        val result = packetizer.packetizeNalu(
+                            nalu = cleanNalu,
+                            timestamp = rtpTimestamp,
+                            startSeqNum = startSeqNum,
+                            marker = isLastNalu,
+                            targetAddress = session.clientAddress,
+                            targetPort = session.clientRtpPort
+                        )
+                        endSeqNum = result.nextSeqNum
+
+                        var totalBytes = 0
+                        for (pkt in result.packets) {
+                            socket.send(pkt)
+                            totalBytes += pkt.length
+                        }
+                        session.updateActivity()
+
+                        if (frameCount <= 10) {
+                            Log.d(TAG, "RTP sent: ${result.packets.size} pkt(s), $totalBytes bytes " +
+                                    "to ${session.clientAddress}:${session.clientRtpPort}")
+                        }
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "RTP send error to ${session.clientAddress}:${session.clientRtpPort}", e)
@@ -188,6 +268,34 @@ class RtspServer {
     }
 
     // ---- Private: Accept Loop ----
+
+    /**
+     * Set a pending event that will be embedded as an H.264 SEI NAL unit
+     * in the next video frame's RTP packets.
+     */
+    fun setPendingEvent(type: String, time: Long, label: String) {
+        val json = "{\"type\":\"$type\",\"time\":$time,\"label\":\"$label\"}"
+        Log.d(TAG, "setPendingEvent: $type at $time")
+        pendingEventJson = buildEventSei(json.toByteArray(Charsets.UTF_8))
+    }
+
+    private fun buildEventSei(payload: ByteArray): ByteArray {
+        // 16-byte UUID to identify HomeCam events
+        val uuid = byteArrayOf(
+            0x48, 0x6F, 0x6D, 0x65, 0x43, 0x61, 0x6D, 0x00,  // "HomeCam\0"
+            0x45, 0x76, 0x74, 0x00, 0x00, 0x00, 0x00, 0x01   // "Evt\0\0\0\0\1"
+        )
+        val seiPayload = uuid + payload
+        val size = seiPayload.size
+        // NAL header(1) + payload_type(1) + payload_size(1) + seiPayload + RBSP(1)
+        val sei = ByteArray(4 + size)
+        sei[0] = 0x06                    // NAL header: forbidden=0, nri=0, type=6 (SEI)
+        sei[1] = 0x05                    // SEI payload_type: user_data_unregistered
+        sei[2] = (size and 0xFF).toByte() // SEI payload_size (< 255 bytes)
+        seiPayload.copyInto(sei, 3)
+        sei[sei.size - 1] = 0x80.toByte() // RBSP trailing bits
+        return sei
+    }
 
     private fun runAcceptLoop() {
         val sock = serverSocket ?: return
@@ -238,7 +346,7 @@ class RtspServer {
                 when (request.method.uppercase()) {
                     "OPTIONS" -> handleOptions(writer, cseq)
                     "DESCRIBE" -> {
-                        session = RtspSession(clientSocket.inetAddress, clientSocket.port)
+                        session = RtspSession(clientSocket.inetAddress, clientSocket.port, clientSocket)
                         session.cseq = cseq
                         synchronized(sessionsLock) { sessions.add(session!!) }
                         handleDescribe(writer, cseq, session)
@@ -362,6 +470,31 @@ class RtspServer {
 
     private fun handleSetup(writer: OutputStreamWriter, cseq: Int, session: RtspSession, request: RtspRequest) {
         val transport = request.headers["transport"] ?: ""
+
+        // Check for TCP interleaved transport (used by EasyNVR, etc.)
+        if (transport.contains("RTP/AVP/TCP") || transport.contains("interleaved")) {
+            val interleavedMatch = Regex("interleaved=(\\d+)-(\\d+)").find(transport)
+            if (interleavedMatch == null) {
+                sendError(writer, cseq, 400, "Missing interleaved in Transport header")
+                return
+            }
+            session.transportMode = RtspSession.TransportMode.TCP
+            session.interleavedRtpChannel = interleavedMatch.groupValues[1].toInt()
+            session.tcpOutputStream = session.clientSocket?.getOutputStream()
+            session.state = RtspSession.State.READY
+
+            val responseTransport = "RTP/AVP/TCP;unicast;interleaved=${session.interleavedRtpChannel}-${session.interleavedRtpChannel + 1}"
+            sendResponse(writer, cseq, 200, "OK",
+                mapOf(
+                    "Transport" to responseTransport,
+                    "Session" to session.sessionId
+                )
+            )
+            Log.i(TAG, "SETUP TCP interleaved for session ${session.sessionId.take(8)}, channel ${session.interleavedRtpChannel}")
+            return
+        }
+
+        // UDP transport handling
         if (!transport.contains("RTP/AVP")) {
             sendError(writer, cseq, 461, "Unsupported Transport")
             return

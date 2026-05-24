@@ -11,10 +11,12 @@
     const cameraDropdown = document.getElementById('camera-dropdown');
     const cameraStatus = document.getElementById('camera-status');
     const powerToggle = document.getElementById('power-toggle');
+    const rotateBtn = document.getElementById('rotate-btn');
 
     let currentCameraId = '';
     let isSwitchingCamera = false;
     let cameraPowered = true;
+    let rotationAngle = 0;
 
     // Tab switching
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -146,6 +148,19 @@
             powerToggle.title = '打开摄像头';
         }
     }
+
+    // Rotation button
+    rotateBtn.addEventListener('click', function() {
+        rotationAngle = (rotationAngle + 90) % 360;
+        liveStream.style.transform = 'rotate(' + rotationAngle + 'deg)';
+        if (rotationAngle === 0) {
+            this.classList.remove('active');
+            this.title = '旋转画面 0°';
+        } else {
+            this.classList.add('active');
+            this.title = '旋转画面 ' + rotationAngle + '°';
+        }
+    });
 
     // Load status periodically
     function updateStatus() {
