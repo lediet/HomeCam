@@ -271,6 +271,18 @@ audioClassifier = AudioClassifier.createFromFile(context, "yamnet.tflite")
         drawDetection(bitmap, rect, lastBoxLabel ?: "person", lastBoxScore)
     }
 
+    fun scaleDetectionRects(scaleX: Float, scaleY: Float) {
+        lastBoxRect?.let { r ->
+            r.set(r.left * scaleX, r.top * scaleY, r.right * scaleX, r.bottom * scaleY)
+        }
+        lastPersonRect?.let { r ->
+            r.set(r.left * scaleX, r.top * scaleY, r.right * scaleX, r.bottom * scaleY)
+        }
+        lastPhoneRect?.let { r ->
+            r.set(r.left * scaleX, r.top * scaleY, r.right * scaleX, r.bottom * scaleY)
+        }
+    }
+
     fun initSleepDetector() {
         Log.d(TAG, "initSleepDetector() start")
         try {
