@@ -90,6 +90,7 @@ class CameraService : LifecycleService() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private lateinit var cameraExecutor: ExecutorService
+    private var detectExecutor: ExecutorService? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -127,6 +128,7 @@ class CameraService : LifecycleService() {
         Log.d(TAG, "onCreate() super done")
 
         cameraExecutor = Executors.newSingleThreadExecutor()
+        detectExecutor = Executors.newSingleThreadExecutor()
         Log.d(TAG, "cameraExecutor created")
 
         val fps = AppSettings.getFps(this)
@@ -511,15 +513,30 @@ class CameraService : LifecycleService() {
 
             val timestamp = System.currentTimeMillis()
 
-            if (AppSettings.isMotionDetectionEnabled(this)) {
-                eventDetector.analyzeFrame(scaledBitmap, timestamp)
+            if (AppSettings.isOverlayEnabled(this)) {
+                // Overlay ON → detection on main thread, draw on bitmap
+                if (AppSettings.isMotionDetectionEnabled(this)) {
+                    eventDetector.analyzeFrame(scaledBitmap, timestamp)
+                }
+                if (AppSettings.isSleepDetectionEnabled(this)) {
+                    eventDetector.analyzeSleep(scaledBitmap)
+                }
+                eventDetector.applyDetectionOverlay(scaledBitmap)
+                latestDetectionMs = eventDetector.lastDetectionMs
+            } else {
+                // Overlay OFF → detection in background thread, no blocking
+                val isMotion = AppSettings.isMotionDetectionEnabled(this)
+                val isSleep = AppSettings.isSleepDetectionEnabled(this)
+                if (isMotion || isSleep) {
+                    val detectCopy = scaledBitmap.copy(Bitmap.Config.ARGB_8888, false)
+                    detectExecutor?.execute {
+                        if (isMotion) eventDetector.analyzeFrame(detectCopy, System.currentTimeMillis())
+                        if (isSleep) eventDetector.analyzeSleep(detectCopy)
+                        latestDetectionMs = eventDetector.lastDetectionMs
+                        detectCopy.recycle()
+                    }
+                }
             }
-            if (AppSettings.isSleepDetectionEnabled(this)) {
-                eventDetector.analyzeSleep(scaledBitmap)
-            }
-
-            eventDetector.applyDetectionOverlay(scaledBitmap)
-            latestDetectionMs = eventDetector.lastDetectionMs
 
             // Feed to H.264 encoder for RTSP streaming
             ensureEncoder(scaledBitmap.width, scaledBitmap.height)
@@ -852,6 +869,7 @@ class CameraService : LifecycleService() {
         h264Encoder?.stop()
         rtspServer?.stop()
         wakeLock?.let { if (it.isHeld) it.release() }
+        detectExecutor?.shutdownNow()
         cameraExecutor.shutdownNow()
 
         Log.d(TAG, "onDestroy() complete")

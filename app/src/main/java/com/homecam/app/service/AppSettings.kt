@@ -101,6 +101,9 @@ object AppSettings {
         return prefs(context).getInt("max_storage_mb", 200)
     }
 
+    fun isOverlayEnabled(context: Context): Boolean =
+        prefs(context).getBoolean("detection_overlay", true)
+
     fun getDetectionIntervalFrames(context: Context): Int {
         val value = prefs(context).getString("detection_interval", "3") ?: "3"
         return value.toIntOrNull()?.coerceIn(1, 10) ?: 3

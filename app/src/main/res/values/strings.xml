@@ -72,7 +72,7 @@
     <string name="pref_detection_interval">检测频率</string>
     <string name="detection_time_label">单帧检测耗时</string>
     <string name="exit_confirm">再按一次退出应用</string>
-    <string name="pref_detection_settings">检测设置</string>
+    <string name="pref_detection_settings">详细检测设置</string>
     <string name="pref_detection_settings_collapsed">点击展开</string>
     <string name="pref_detection_settings_expanded">点击收起</string>
     <string name="pref_detection_target">检测类别</string>
@@ -83,4 +83,6 @@
     <string name="pref_mjpg_enabled_summary">通过 HTTP 推送 MJPEG 视频流，供浏览器查看</string>
     <string name="stream_warning_title">推流未开启</string>
     <string name="stream_warning_message">请至少开启 MJPEG 或 RTSP 中的一种推流方式</string>
+    <string name="pref_detection_overlay">检测标记</string>
+    <string name="pref_detection_overlay_summary">检测到目标后在视频流上画框标记</string>
 </resources>

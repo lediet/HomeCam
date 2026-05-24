@@ -1,6 +1,8 @@
 package com.homecam.app.ui
 
 import android.os.Bundle
+import android.text.SpannableString
+import android.text.style.RelativeSizeSpan
 import androidx.preference.PreferenceCategory
 import androidx.preference.SwitchPreferenceCompat
 import androidx.preference.ListPreference
@@ -144,6 +146,7 @@ class SettingsActivity : AppCompatActivity() {
 
             val detectionTarget = ListPreference(context).apply {
                 key = "detection_target"
+                isVisible = false
                 title = getString(R.string.pref_detection_target)
                 summary = getString(R.string.pref_detection_target_summary)
                 entries = arrayOf("人", "猫", "狗", "鸟")
@@ -176,6 +179,25 @@ class SettingsActivity : AppCompatActivity() {
                 setDefaultValue("cpu")
             }
             detectionCategory.addPreference(inferenceBackend)
+
+            val detectionOverlay = SwitchPreferenceCompat(context).apply {
+                key = "detection_overlay"
+                title = getString(R.string.pref_detection_overlay)
+                summary = getString(R.string.pref_detection_overlay_summary)
+                setDefaultValue(true)
+                isVisible = false
+            }
+            detectionCategory.addPreference(detectionOverlay)
+
+            fun indentPref(pref: Preference) {
+                val span = SpannableString(" ${pref.title}")
+                span.setSpan(RelativeSizeSpan(0.85f), 0, span.length, 0)
+                pref.title = span
+            }
+            indentPref(detectionTarget)
+            indentPref(detectionInterval)
+            indentPref(inferenceBackend)
+            indentPref(detectionOverlay)
 
             val fallDetection = SwitchPreferenceCompat(context).apply {
                 key = "fall_detection"
@@ -255,6 +277,7 @@ class SettingsActivity : AppCompatActivity() {
                 detectionTarget.isVisible = settingsExpanded
                 detectionInterval.isVisible = settingsExpanded
                 inferenceBackend.isVisible = settingsExpanded
+                detectionOverlay.isVisible = settingsExpanded
                 detectionSettingsHeader.summary = getString(if (settingsExpanded) R.string.pref_detection_settings_expanded else R.string.pref_detection_settings_collapsed)
                 true
             }
