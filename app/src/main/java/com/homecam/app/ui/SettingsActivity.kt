@@ -207,6 +207,26 @@ class SettingsActivity : AppCompatActivity() {
             }
             detectionCategory.addPreference(fallDetection)
 
+            val landscapeMode = ListPreference(context).apply {
+                key = "landscape_mode"
+                title = getString(R.string.pref_landscape_mode)
+                entries = arrayOf(
+                    getString(R.string.pref_landscape_mode_portrait),
+                    getString(R.string.pref_landscape_mode_landscape)
+                )
+                entryValues = arrayOf("portrait", "landscape")
+                setDefaultValue("portrait")
+                summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
+            }
+            detectionCategory.addPreference(landscapeMode)
+            landscapeMode.isVisible = fallDetection.isChecked
+
+            fallDetection.onPreferenceChangeListener =
+                Preference.OnPreferenceChangeListener { _, newValue ->
+                    landscapeMode.isVisible = newValue as Boolean
+                    true
+                }
+
             val phoneDetection = SwitchPreferenceCompat(context).apply {
                 key = "phone_detection"
                 title = getString(R.string.pref_phone_detection)

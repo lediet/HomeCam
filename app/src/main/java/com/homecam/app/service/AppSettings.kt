@@ -70,6 +70,9 @@ object AppSettings {
     fun isFallDetectionEnabled(context: Context): Boolean =
         prefs(context).getBoolean("fall_detection", false)
 
+    fun isLandscapeMode(context: Context): Boolean =
+        prefs(context).getString("landscape_mode", "portrait") == "landscape"
+
     fun isPhoneDetectionEnabled(context: Context): Boolean =
         prefs(context).getBoolean("phone_detection", false)
 

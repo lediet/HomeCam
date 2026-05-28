@@ -467,7 +467,9 @@ audioClassifier = AudioClassifier.createFromFile(context, "yamnet.tflite")
         val length = kotlin.math.sqrt(dx * dx + dy * dy)
         if (length < 1e-6f) return
 
-        val cosAngle = kotlin.math.abs(dy) / length
+        val isLandscape = AppSettings.isLandscapeMode(context)
+        val effectiveDy = if (isLandscape) dx else dy
+        val cosAngle = kotlin.math.abs(effectiveDy) / length
         val torsoAngleDeg = Math.toDegrees(kotlin.math.acos(cosAngle.toDouble())).toFloat()
         val now = System.currentTimeMillis()
 
