@@ -1,8 +1,8 @@
-# HomeCam v1.0 工作记录与技术文档
+# HomeCam v1.6 工作记录与技术文档
 
 **最后更新**：2026-05-24  
-**版本**：1.6.0  
-**状态**：v1.6.0 检测画框标记独立开关 + 双线程检测管道；设置页 AI 检测折叠优化；事件类型文本映射补齐
+**版本**：1.6.2  
+**状态**：v1.6.2 录像策略选择器 + 基于事件录像 + 进出姓名移除
 
 ---
 
@@ -1488,5 +1488,114 @@ implementation("androidx.camera:camera-core:$cameraxVersion")
 
 ---
 
-*文档结束 — HomeCam v1.6.0 工作记录*
+### v1.6.1 (2026-05-24) — 事件标签持久化 + 缩略图 API + 内建相册
+
+#### 新增
+
+1. **事件标签持久化** — Room 数据库版本 1→2，新增 `eventLabel` 字段
+   - `ALTER TABLE video_records ADD COLUMN eventLabel TEXT NOT NULL DEFAULT ''`
+   - 录像时保存事件标签（玩手机百分比、进出标签等）
+   - Web UI 和 App 相册均显示事件标签
+
+2. **缩略图 API** — 新增 `GET /api/thumbnails/{filename}` 端点
+   - 使用 `MediaMetadataRetriever.frameAtTime` 抽取视频首帧
+   - 缩放为 320×240 JPEG 缩略图
+   - 前端 `loading="lazy"` + `onerror` 降级处理
+
+3. **内建相册 (GalleryActivity)** — 新 Activity 替代系统文件管理器
+   - Material Design 卡片列表 + MaterialToolbar
+   - 后台线程加载视频文件和 Room 数据库信息
+   - 异步生成缩略图（MediaMetadataRetriever 线程池）
+   - FileProvider + Intent.ACTION_VIEW 调用系统播放器
+   - 新增布局 `activity_gallery.xml`、图标 `ic_arrow_back.xml`、`card_background.xml`
+
+4. **Web 前端历史页重构** — 两列布局（视频列表 + 内嵌播放器）
+   - 80×45 紧凑缩略图
+   - 最新 10 条视频按时间降序排列
+   - 15 秒自动刷新（不含自动播放）
+   - 移动端 700px 断点自适应
+
+5. **录像事件优先级覆盖** — 已有录像进行中被高优先级事件覆盖
+   - motion 录像中被非 motion 事件（fall/phone/cry 等）触发时，覆盖录制类型和标签
+   - 延长录像时长确保覆盖完整事件
+
+6. **旋转按钮** — Web 直播页新增画面 90° 旋转按钮
+
+#### 修复
+
+1. **存储路径兼容性** — `Environment.getExternalStorageDirectory()` → `context.getExternalFilesDir(null)`
+   - 解决 Android 11+ 分区存储（Scoped Storage）写入权限问题
+   - 新路径：`/storage/emulated/0/Android/data/com.homecam.app/files/HomeCam/`
+
+2. **视频列表显示已删除文件** — `serveVideoList()` 返回前检查文件是否存在
+   - 已循环缓冲区删除但 DB 记录仍存在的条目不再展示
+
+3. **FileProvider 路径匹配** — `file_paths.xml` 移除末尾斜杠（`path="HomeCam/"` → `path="HomeCam"`）
+   - 修复目录 URI 权限授予失败的问题
+
+4. **文件夹图标无法打开** — 移除 `openVideoFolder()`，改为启动 GalleryActivity
+
+#### 技术调整
+
+- `res/xml/file_paths.xml`：新增文件路径配置
+- `AndroidManifest.xml`：注册 GalleryActivity
+- `ui/MainActivity.kt`：移除 FileProvider/Intent 相关导入和 `openVideoFolder()` 方法
+- `web/CamWebServer.kt`：新增 `serveThumbnail()` 路由和实现
+- `data/VideoRecord.kt`：新增 `eventLabel` 字段
+- `data/VideoDatabase.kt`：新增 `MIGRATION_1_2` 和版本号 2
+- `recorder/VideoRecorder.kt`：`saveEventVideo()` 新增 `eventLabel` 参数
+- `service/CameraService.kt`：新增事件标签追踪和传递
+- 版本号：versionCode = 10, versionName = "1.6.1"
+
+---
+
+### v1.6.2 (2026-05-24) — 录像策略选择器 + 进出姓名移除
+
+#### 新增
+
+1. **录像策略选择器** — 设置 → 录像新增「录像策略」选项，二选一：
+   - **有人/动物存在**（默认）：保持原有行为，motion 事件触发录像，文件名短码 (MOT/CRY/DNG/FAL/GUP/PHN/EVT)
+   - **基于事件**：仅非 motion 事件（cry/sleep/wake_up/enter/leave/fall/get_up/phone/danger）触发录像
+     - motion 事件完全忽略，不触发录像也不覆盖正在进行的录像
+     - 文件名使用可读标签 (CRY/SLEEP/WAKE/ENTER/LEAVE/FALL/GETUP/PHONE/DANGER)
+
+2. **事件类型完整列表更新**
+
+   | 事件类型 | 触发条件 | 显示文本 | 写入日志 | 触发录像(有人/动物存在) | 触发录像(基于事件) |
+   |----------|---------|---------|:---:|:---:|:---:|
+   | `enter` | 无人→有人/动物进入 | `有人进入了` | ✓ | ✓ | ✓ |
+   | `leave` | 离开超过 30 秒 | `有人离开了` | ✓ | ✓ | ✓ |
+   | `motion` | 每次检测到人/动物（5秒冷却） | 不显示 | ✗ | ✓ | ✗ |
+   | `cry` | YAMNet 婴儿哭声 | `婴儿哭声` | ✓ | ✓ | ✓ |
+   | `sleep` | EAR 闭眼 15 帧连续 | `宝宝睡着了` | ✓ | ✓ | ✓ |
+   | `wake_up` | 睡眠中 5 帧睁眼 | `宝宝睡醒了` | ✓ | ✓ | ✓ |
+   | `fall` | 躯干角度 > 50° 持续 ~3 秒 | `检测到有人摔倒` | ✓ | ✓ | ✓ |
+   | `get_up` | 摔倒后恢复站立 | `有人站起来了` | ✓ | ✓ | ✓ |
+   | `phone` | 手机+手部置信度 > 0.5 | `有人在玩手机（{n}%）` | ✓ | ✓ | ✓ |
+
+#### 变更
+
+1. **人物进出不再显示 occupant 姓名** — 所有界面的 enter/leave 事件统一显示：
+   - Web UI：`有人进入了` / `有人离开了`
+   - 通知栏：`有人进入了` / `有人离开了`
+   - 事件日志：不再记录 occupant 标签
+   - 录像标签：不再包含 occupant 姓名
+   - 字符串资源：移除 `event_enter`/`event_leave` 的 `%1$s` 占位符
+
+#### 技术调整
+
+- `res/values/strings.xml`：新增 `pref_recording_strategy` 系列字符串；`event_enter`/`event_leave` 移除 `%1$s`
+- `service/AppSettings.kt`：新增 `getRecordingStrategy()`
+- `ui/SettingsActivity.kt`：录像分类新增 `recording_strategy` ListPreference
+- `service/CameraService.kt`：
+  - `onEventDetected()`：event 模式下跳过 motion 触发录像
+  - 所有 enter/leave 事件标签移除 occupant 姓名
+  - `updateNotification()`：enter/leave 不再传 `latestEventLabel`
+- `recorder/VideoRecorder.kt`：`generateFileName()` 根据策略使用不同标签集
+- `assets/web/app.js`：`getEventLabel()` enter/leave 返回静态文本
+- 版本号：versionCode = 11, versionName = "1.6.2"
+
+---
+
+*文档结束 — HomeCam v1.6.2 工作记录*
 

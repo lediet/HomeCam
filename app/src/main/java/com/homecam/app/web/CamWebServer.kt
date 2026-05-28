@@ -53,9 +53,10 @@ class CamWebServer(
             uri == "/api/camera/power" -> serveCameraPower(session)
             uri == "/api/status" -> serveStatus()
             uri == "/api/events" -> serveEvents()
-            uri == "/api/videos" -> serveVideoList()
+            uri == "/api/videos" || uri == "/api/videos/" -> serveVideoList()
             uri.startsWith("/videos/") -> serveVideoFile(uri)
             uri == "/api/frame.jpg" -> serveFrameJpeg()
+            uri.startsWith("/api/thumbnails/") -> serveThumbnail(uri)
             uri == "/api/diag/dump" -> serveDiagDump(session)
             else -> newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Not Found")
         }
@@ -140,17 +141,46 @@ class CamWebServer(
             val videos = runBlocking {
                 app.database.videoDao().getAll()
             }
-            val videoList = videos.map { record ->
-                mapOf(
-                    "fileName" to record.fileName,
-                    "timestamp" to record.timestamp,
-                    "eventType" to record.eventType,
-                    "durationSec" to record.durationSec,
-                    "fileSize" to record.fileSize,
-                    "url" to "/videos/${record.fileName}"
-                )
+            val videoDir = context.getExternalFilesDir(null)?.let { java.io.File(it, "HomeCam") }
+            val service = ServiceManager.instance
+            val fileMap = mutableMapOf<String, Map<String, Any>>()
+            val knownNames = mutableSetOf<String>()
+            videos.forEach { record ->
+                // Only include DB records whose files still exist on disk
+                if (videoDir != null && java.io.File(videoDir, record.fileName).exists()) {
+                    knownNames.add(record.fileName)
+                    fileMap[record.fileName] = mapOf(
+                        "fileName" to record.fileName,
+                        "timestamp" to record.timestamp,
+                        "eventType" to record.eventType,
+                        "eventLabel" to record.eventLabel,
+                        "durationSec" to record.durationSec,
+                        "fileSize" to record.fileSize,
+                        "url" to "/videos/${record.fileName}"
+                    )
+                }
             }
-            newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(videoList))
+            val recorder = service?.videoRecorder
+            if (recorder != null) {
+                val dir = recorder.getOutputDir()
+                val files = dir.listFiles { f -> f.isFile && f.name.endsWith(".mp4") }
+                if (files != null) {
+                    files.sortedByDescending { it.lastModified() }.forEach { f ->
+                        if (f.name !in knownNames) {
+                            fileMap[f.name] = mapOf(
+                                "fileName" to f.name,
+                                "timestamp" to f.lastModified(),
+                                "eventType" to "unknown",
+                                "durationSec" to 0,
+                                "fileSize" to f.length(),
+                                "url" to "/videos/${f.name}"
+                            )
+                        }
+                    }
+                }
+            }
+            val resultList = fileMap.values.toList().sortedByDescending { it["timestamp"] as Long }
+            newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(resultList))
         } catch (e: Exception) {
             newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error")
         }
@@ -186,6 +216,34 @@ class CamWebServer(
             Response.Status.OK, "image/jpeg",
             ByteArrayInputStream(frame.second), frame.second.size.toLong()
         )
+    }
+
+    private fun serveThumbnail(uri: String): Response {
+        val fileName = uri.removePrefix("/api/thumbnails/")
+        if (fileName.contains("..") || fileName.contains("/")) {
+            return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "Invalid")
+        }
+        val service = ServiceManager.instance
+            ?: return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, MIME_PLAINTEXT, "Service not running")
+        val file = service.videoRecorder?.getVideoFile(fileName)
+            ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Video not found")
+        return try {
+            val retriever = android.media.MediaMetadataRetriever()
+            retriever.setDataSource(file.absolutePath)
+            val bitmap = retriever.frameAtTime
+            retriever.release()
+            if (bitmap == null) {
+                return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "image/jpeg", "")
+            }
+            val thumbnail = android.graphics.Bitmap.createScaledBitmap(bitmap, 320, 240, true)
+            val baos = java.io.ByteArrayOutputStream()
+            thumbnail.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, baos)
+            newFixedLengthResponse(Response.Status.OK, "image/jpeg",
+                ByteArrayInputStream(baos.toByteArray()), baos.size().toLong())
+        } catch (e: Exception) {
+            Log.e(TAG, "Thumbnail failed", e)
+            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error")
+        }
     }
 
     /**

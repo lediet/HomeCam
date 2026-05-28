@@ -8,6 +8,7 @@ data class VideoRecord(
     @PrimaryKey val fileName: String,
     val timestamp: Long,
     val eventType: String,
+    val eventLabel: String = "",
     val durationSec: Int,
     val fileSize: Long
 )

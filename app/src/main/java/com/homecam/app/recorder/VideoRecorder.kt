@@ -29,7 +29,7 @@ class VideoRecorder(
 
     private val settings = AppSettings
     private val outputDir = File(
-        android.os.Environment.getExternalStorageDirectory(),
+        context.getExternalFilesDir(null),
         "HomeCam"
     )
 
@@ -44,9 +44,10 @@ class VideoRecorder(
     fun saveEventVideo(
         triggerType: String,
         preFrames: List<Pair<Long, ByteArray>>,
-        postFrames: List<Pair<Long, ByteArray>>
+        postFrames: List<Pair<Long, ByteArray>>,
+        eventLabel: String = ""
     ) {
-        android.util.Log.d(TAG, "saveEventVideo: type=$triggerType, pre=${preFrames.size}, post=${postFrames.size}")
+        android.util.Log.d(TAG, "saveEventVideo: type=$triggerType, label=$eventLabel, pre=${preFrames.size}, post=${postFrames.size}")
         if (preFrames.isEmpty() && postFrames.isEmpty()) return
 
         scope.launch(Dispatchers.IO) {
@@ -64,6 +65,7 @@ class VideoRecorder(
                         fileName = fileName,
                         timestamp = allFrames.first().first,
                         eventType = triggerType,
+                        eventLabel = eventLabel,
                         durationSec = durationSec,
                         fileSize = outputFile.length()
                     )
@@ -250,14 +252,31 @@ class VideoRecorder(
 
     private fun generateFileName(triggerType: String): String {
         val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
-        val typeShort = when (triggerType) {
-            "motion" -> "MOT"
-            "cry" -> "CRY"
-            "danger" -> "DNG"
-            "fall" -> "FAL"
-            "get_up" -> "GUP"
-            "phone" -> "PHN"
-            else -> "EVT"
+        val isEventMode = AppSettings.getRecordingStrategy(context) == "event"
+        val typeShort = if (isEventMode) {
+            when (triggerType) {
+                "cry" -> "CRY"
+                "sleep" -> "SLEEP"
+                "wake_up" -> "WAKE"
+                "enter" -> "ENTER"
+                "leave" -> "LEAVE"
+                "fall" -> "FALL"
+                "get_up" -> "GETUP"
+                "phone" -> "PHONE"
+                "danger" -> "DANGER"
+                "motion" -> "MOT"
+                else -> "EVT"
+            }
+        } else {
+            when (triggerType) {
+                "motion" -> "MOT"
+                "cry" -> "CRY"
+                "danger" -> "DNG"
+                "fall" -> "FAL"
+                "get_up" -> "GUP"
+                "phone" -> "PHN"
+                else -> "EVT"
+            }
         }
         return "HomeCam_${typeShort}_${sdf.format(Date())}.mp4"
     }

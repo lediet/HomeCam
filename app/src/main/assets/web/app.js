@@ -5,9 +5,7 @@
     const streamStatus = document.getElementById('stream-status');
     const eventList = document.getElementById('event-list');
     const videoList = document.getElementById('video-list');
-    const videoPlayer = document.getElementById('video-player');
     const playback = document.getElementById('playback');
-    const closePlayer = document.getElementById('close-player');
     const cameraDropdown = document.getElementById('camera-dropdown');
     const cameraStatus = document.getElementById('camera-status');
     const powerToggle = document.getElementById('power-toggle');
@@ -46,12 +44,12 @@
         }, 3000);
     });
 
-    // Close player
-    closePlayer.addEventListener('click', () => {
-        playback.pause();
-        playback.src = '';
-        videoPlayer.classList.add('hidden');
-    });
+    // Play video in history player
+    function playVideo(url) {
+        playback.src = url;
+        document.getElementById('player-placeholder').style.display = 'none';
+        playback.play();
+    }
 
     // Camera selector
     function loadCameraList() {
@@ -209,8 +207,8 @@
             case 'cry': return '婴儿哭声';
             case 'sleep': return '宝宝睡着了';
             case 'wake_up': return '宝宝睡醒了';
-            case 'enter': return '有' + (label || '') + '进入了';
-            case 'leave': return '有' + (label || '') + '离开了';
+            case 'enter': return '有人进入了';
+            case 'leave': return '有人离开了';
             case 'fall': return '检测到有人摔倒';
             case 'get_up': return '有人站起来了';
             case 'phone': return '有人在玩手机（' + (label || '50%') + '）';
@@ -240,7 +238,7 @@
     }
 
     // Load video list
-    function loadVideoList() {
+    function loadVideoList(autoPlay = true) {
         fetch('/api/videos')
             .then(r => r.json())
             .then(videos => {
@@ -249,18 +247,19 @@
                     return;
                 }
 
-                videoList.innerHTML = videos.slice(-10).map(v => {
+                videoList.innerHTML = videos.slice(0, 10).map(v => {
                     const time = new Date(v.timestamp).toLocaleTimeString('zh-CN');
                     const date = new Date(v.timestamp).toLocaleDateString('zh-CN');
                     const icon = {motion: '👤', cry: '🔊', sleep: '💤', wake_up: '😴', enter: '🚶', leave: '🚪', fall: '😵', get_up: '🧍', phone: '📱'}[v.eventType] || '📁';
                     const typeLabel = {motion: '人物移动', cry: '婴儿哭声', sleep: '宝宝睡着了', wake_up: '宝宝睡醒了', enter: '有人进入', leave: '有人离开', fall: '有人摔倒', get_up: '有人站起来了', phone: '玩手机'}[v.eventType] || v.eventType;
+                    const displayLabel = v.eventLabel ? typeLabel + ' (' + v.eventLabel + ')' : typeLabel;
                     const size = (v.fileSize / 1024 / 1024).toFixed(1);
 
                     return `<div class="video-item" data-url="${v.url}" data-filename="${v.fileName}">
-                        <div class="event-type">${icon}</div>
+                        <img class="video-thumb" src="/api/thumbnails/${v.fileName}" alt="" loading="lazy" onerror="this.style.display='none'">
                         <div class="info">
                             <div class="time">${date} ${time}</div>
-                            <div class="detail">${typeLabel} | ${v.durationSec}秒 | ${size}MB</div>
+                            <div class="detail">${displayLabel} | ${v.durationSec}秒 | ${size}MB</div>
                         </div>
                         <div class="actions">
                             <button class="btn-icon play-btn" title="播放">&#9654;</button>
@@ -272,13 +271,31 @@
                 // Bind events
                 videoList.querySelectorAll('.play-btn').forEach(btn => {
                     btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
                         const item = e.target.closest('.video-item');
-                        const url = item.dataset.url;
-                        playback.src = url;
-                        videoPlayer.classList.remove('hidden');
-                        playback.play();
+                        playVideo(item.dataset.url);
+                        videoList.querySelectorAll('.video-item').forEach(i => i.classList.remove('active'));
+                        item.classList.add('active');
                     });
                 });
+
+                // Click video item to play
+                videoList.querySelectorAll('.video-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        playVideo(item.dataset.url);
+                        videoList.querySelectorAll('.video-item').forEach(i => i.classList.remove('active'));
+                        item.classList.add('active');
+                    });
+                });
+
+                // Auto-play first video on initial load only
+                if (autoPlay) {
+                    const firstItem = videoList.querySelector('.video-item:first-child');
+                    if (firstItem) {
+                        firstItem.classList.add('active');
+                        playVideo(firstItem.dataset.url);
+                    }
+                }
 
                 videoList.querySelectorAll('.download-btn').forEach(btn => {
                     btn.addEventListener('click', (e) => {
@@ -300,7 +317,7 @@
     // Auto-refresh history when tab is active
     setInterval(() => {
         if (document.getElementById('history-tab').classList.contains('active')) {
-            loadVideoList();
+            loadVideoList(false);
         }
     }, 15000);
 

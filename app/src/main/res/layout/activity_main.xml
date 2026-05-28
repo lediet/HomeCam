@@ -159,6 +159,17 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:checked="true" />
+
+                <ImageButton
+                    android:id="@+id/open_folder_button"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="4dp"
+                    android:src="@drawable/ic_folder"
+                    android:contentDescription="打开录像文件夹"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:scaleType="center"
+                    android:tint="?android:attr/textColorSecondary" />
             </LinearLayout>
 
             <!-- Info Card -->

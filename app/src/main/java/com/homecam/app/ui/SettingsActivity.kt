@@ -259,6 +259,19 @@ class SettingsActivity : AppCompatActivity() {
             }
             recordingCategory.addPreference(saveDuration)
 
+            val recordingStrategy = androidx.preference.ListPreference(context).apply {
+                key = "recording_strategy"
+                title = getString(R.string.pref_recording_strategy)
+                entries = arrayOf(
+                    getString(R.string.pref_recording_strategy_motion),
+                    getString(R.string.pref_recording_strategy_event)
+                )
+                entryValues = arrayOf("motion", "event")
+                setDefaultValue("motion")
+                summaryProvider = androidx.preference.ListPreference.SimpleSummaryProvider.getInstance()
+            }
+            recordingCategory.addPreference(recordingStrategy)
+
             val maxVideoCount = androidx.preference.ListPreference(context).apply {
                 key = "max_video_count"
                 title = getString(R.string.pref_max_video_count)

@@ -104,6 +104,9 @@ object AppSettings {
     fun isOverlayEnabled(context: Context): Boolean =
         prefs(context).getBoolean("detection_overlay", true)
 
+    fun getRecordingStrategy(context: Context): String =
+        prefs(context).getString("recording_strategy", "motion") ?: "motion"
+
     fun getDetectionIntervalFrames(context: Context): Int {
         val value = prefs(context).getString("detection_interval", "3") ?: "3"
         return value.toIntOrNull()?.coerceIn(1, 10) ?: 3

@@ -23,6 +23,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.homecam.app.R
 import com.homecam.app.service.AppSettings
+import com.homecam.app.service.ServiceManager
 import com.homecam.app.service.CameraInfo
 import com.homecam.app.service.CameraService
 import com.homecam.app.service.CameraUtils
@@ -137,6 +138,10 @@ class MainActivity : AppCompatActivity() {
 
         recordingSwitch.setOnCheckedChangeListener { _, isChecked ->
             CameraService.recordingEnabled = isChecked
+        }
+
+        findViewById<ImageButton>(R.id.open_folder_button).setOnClickListener {
+            startActivity(Intent(this, GalleryActivity::class.java))
         }
 
         toggleButton.setOnClickListener {
@@ -345,6 +350,7 @@ class MainActivity : AppCompatActivity() {
             mjpgUrlText.visibility = TextView.GONE
         }
     }
+
 
     private fun checkPermissionsAndStart() {
         // Check that at least one streaming method is enabled

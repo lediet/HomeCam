@@ -18,8 +18,8 @@
     <string name="event_cry">婴儿哭声</string>
     <string name="event_sleep">宝宝睡着了</string>
     <string name="event_wake_up">宝宝睡醒了</string>
-    <string name="event_enter">有%1$s进入了</string>
-    <string name="event_leave">有%1$s离开了</string>
+    <string name="event_enter">有人进入了</string>
+    <string name="event_leave">有人离开了</string>
     <string name="event_unknown">未知事件</string>
     <string name="latest_event_label">最新事件</string>
     <string name="no_events">暂无事件</string>
@@ -66,6 +66,9 @@
     <string name="pref_save_duration_summary">前后各 %1$d 秒</string>
     <string name="pref_max_video_count">最大保存视频数</string>
     <string name="pref_max_video_count_summary">最多保存 %1$d 个视频</string>
+    <string name="pref_recording_strategy">录像策略</string>
+    <string name="pref_recording_strategy_motion">有人/动物存在</string>
+    <string name="pref_recording_strategy_event">基于事件</string>
 
     <!-- Camera -->
     <string name="camera_select">选择摄像头</string>

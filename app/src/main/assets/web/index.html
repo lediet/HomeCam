@@ -37,12 +37,20 @@
             </section>
 
             <section id="history-tab" class="tab-content">
-                <div id="video-player" class="video-player hidden">
-                    <video id="playback" controls></video>
-                    <button id="close-player" class="close-btn">&times;</button>
-                </div>
-                <div id="video-list" class="video-list">
-                    <div class="empty-state">暂无历史视频</div>
+                <div class="history-layout">
+                    <div class="history-player-panel">
+                        <div class="video-player">
+                            <video id="playback" class="history-video" controls></video>
+                        </div>
+                        <div class="player-placeholder" id="player-placeholder">
+                            <div class="placeholder-text">点击右侧视频播放</div>
+                        </div>
+                    </div>
+                    <div class="history-list-panel">
+                        <div id="video-list" class="video-list">
+                            <div class="empty-state">暂无历史视频</div>
+                        </div>
+                    </div>
                 </div>
             </section>
         </main>

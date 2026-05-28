@@ -114,6 +114,8 @@ class CameraService : LifecycleService() {
     private val postEventFrames = mutableListOf<Pair<Long, ByteArray>>()
     @Volatile
     private var currentEventType: String? = null
+    @Volatile
+    private var currentEventLabel: String = ""
     private var postEventEndTime = 0L
 
     @Volatile
@@ -718,12 +720,28 @@ class CameraService : LifecycleService() {
             Log.d(TAG, "Recording disabled, skipping video")
             return
         }
+
+        // "基于事件" strategy: skip motion-triggered recording entirely
+        if (AppSettings.getRecordingStrategy(this) == "event" && cleanType == "motion") {
+            return
+        }
+
         val saveDuration = AppSettings.getSaveDurationSec(this)
 
         synchronized(postEventFrames) {
-            if (isRecordingEvent) return
+            if (isRecordingEvent) {
+                // Already recording: override event type if the new event is more specific
+                if (cleanType != "motion") {
+                    currentEventType = cleanType
+                    currentEventLabel = if (cleanType == "phone") extraLabel else ""
+                    postEventEndTime = now + saveDuration * 1000L
+                    android.util.Log.d(TAG, "onEventDetected: overrode recording type to $cleanType")
+                }
+                return
+            }
             isRecordingEvent = true
             currentEventType = cleanType
+            currentEventLabel = if (cleanType == "phone") extraLabel else ""
             postEventEndTime = now + saveDuration * 1000L
             postEventFrames.clear()
         }
@@ -744,7 +762,9 @@ class CameraService : LifecycleService() {
             postEventFrames.clear()
         }
         currentEventType = null
-        videoRecorder?.saveEventVideo(eventType, preFrames, framesToSave)
+        val eventLabel = currentEventLabel
+        currentEventLabel = ""
+        videoRecorder?.saveEventVideo(eventType, preFrames, framesToSave, eventLabel)
     }
 
     private fun updateNotification(eventType: String) {
@@ -753,8 +773,8 @@ class CameraService : LifecycleService() {
             "cry" -> getString(R.string.event_cry)
             "sleep" -> getString(R.string.event_sleep)
             "wake_up" -> getString(R.string.event_wake_up)
-            "enter" -> getString(R.string.event_enter, latestEventLabel.ifEmpty { "未知" })
-            "leave" -> getString(R.string.event_leave, latestEventLabel.ifEmpty { "未知" })
+            "enter" -> getString(R.string.event_enter)
+            "leave" -> getString(R.string.event_leave)
             "fall" -> getString(R.string.event_fall)
             "get_up" -> getString(R.string.event_get_up)
             "phone" -> getString(R.string.event_phone, latestEventLabel.ifEmpty { "50%" })
