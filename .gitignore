@@ -1,4 +1,22 @@
-# Project exclude paths
-/.gradle/
+# --- Android / Gradle ---
+.gradle/
+/build/
 /app/build/
-/app/build/intermediates/javac/debug/classes/
+local.properties
+*.iml
+
+# --- IDE ---
+.idea/
+*.iws
+*.ipr
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Claude Code ---
+.claude/
+
+# --- Temp / Misc ---
+tmp_fix_audio.py
+*.log
