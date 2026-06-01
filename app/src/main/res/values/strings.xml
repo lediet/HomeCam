@@ -91,4 +91,29 @@
     <string name="stream_warning_message">请至少开启 MJPEG 或 RTSP 中的一种推流方式</string>
     <string name="pref_detection_overlay">检测标记</string>
     <string name="pref_detection_overlay_summary">检测到目标后在视频流上画框标记</string>
+
+    <!-- About Dialog -->
+    <string name="dialog_about_title">关于 HomeCam</string>
+    <string name="dialog_open_source">🔹 开源说明
+
+本项目完全开源、永久免费，无广告、所有数据纯本地传输运行，无任何后门和隐私风险，所有功能开放使用，无任何付费门槛。</string>
+    <string name="dialog_donation">🔹 自愿支持
+
+若你觉得工具实用，愿意支持开发者持续迭代、优化功能，可自愿打赏。
+赞赏纯属个人意愿，不会限制、影响任何软件功能。</string>
+    <string name="dialog_qr_description">赞赏码</string>
+    <string name="dialog_github">🔹 教程 &amp; 源码地址
+
+完整部署教程、源码文件、更新日志统一托管在 GitHub：
+\n https://github.com/lediet/HomeCam</string>
+    <string name="dialog_feedback">🔹 交流反馈
+
+项目相关问题、功能建议、Bug 反馈，请前往 GitHub 提交 Issue / 参与讨论。</string>
+    <string name="dialog_disclaimer">⚠️ 免责声明
+
+\n本软件仅限个人家庭非商用学习与使用；
+\n严禁用于偷拍、侵权、违法违规场景，违规使用产生的一切后果由使用者自行承担；
+\n软件 AI 检测、监控功能仅作日常辅助参考，不可替代专业安防、监控设备，长期插电使用可能损耗您的电池；
+\n使用者需自行保障设备、网络与数据安全，作者不对设备故障、数据丢失等问题承担责任。
+</string>
 </resources>

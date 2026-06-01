@@ -17,8 +17,16 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.text.method.ScrollingMovementMethod
+import android.text.SpannableString
+import android.text.style.ClickableSpan
+import android.text.style.ImageSpan
+import android.text.method.LinkMovementMethod
+import android.graphics.BitmapFactory
+import android.graphics.drawable.BitmapDrawable
+import android.widget.ScrollView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.homecam.app.R
@@ -154,6 +162,10 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<LinearLayout>(R.id.settings_button).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
+        }
+
+        findViewById<LinearLayout>(R.id.help_button).setOnClickListener {
+            showAboutDialog()
         }
 
         Log.d(TAG, "onCreate() complete")
@@ -405,6 +417,117 @@ class MainActivity : AppCompatActivity() {
         Handler(Looper.getMainLooper()).postDelayed({
             if (!isFinishing && !isDestroyed) updateUI()
         }, 500)
+    }
+
+    private fun showAboutDialog() {
+        val scrollView = ScrollView(this)
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 24, 40, 24)
+        }
+
+        // Open Source
+        container.addView(TextView(this).apply {
+            text = getString(R.string.dialog_open_source)
+            textSize = 14f
+            setLineSpacing(6f, 1f)
+        })
+
+        // Separator
+        container.addView(TextView(this).apply {
+            text = ""
+            height = 32
+        })
+
+        // Donation
+        container.addView(TextView(this).apply {
+            text = getString(R.string.dialog_donation)
+            textSize = 14f
+            setLineSpacing(6f, 1f)
+        })
+
+        // QR Code
+        container.addView(TextView(this).apply {
+            text = getString(R.string.dialog_qr_description)
+            textSize = 13f
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, 12, 0, 8)
+        })
+
+        try {
+            val inputStream = assets.open("QR/QR.jpg")
+            val bitmap = BitmapFactory.decodeStream(inputStream)
+            inputStream.close()
+            val qrView = ImageView(this).apply {
+                setImageBitmap(bitmap)
+                layoutParams = LinearLayout.LayoutParams(400, 400).apply {
+                    gravity = android.view.Gravity.CENTER
+                }
+            }
+            container.addView(qrView)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load QR code", e)
+        }
+
+        // Separator
+        container.addView(TextView(this).apply {
+            text = ""
+            height = 24
+        })
+
+        // GitHub link
+        val githubText = getString(R.string.dialog_github)
+        val githubSpannable = SpannableString(githubText)
+        val urlStart = githubText.indexOf("https://")
+        if (urlStart >= 0) {
+            githubSpannable.setSpan(object : ClickableSpan() {
+                override fun onClick(widget: android.view.View) {
+                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/lediet/HomeCam"))
+                    startActivity(intent)
+                }
+            }, urlStart, githubText.length, 0)
+        }
+        container.addView(TextView(this).apply {
+            text = githubSpannable
+            textSize = 14f
+            setLineSpacing(6f, 1f)
+            movementMethod = LinkMovementMethod.getInstance()
+        })
+
+        // Separator
+        container.addView(TextView(this).apply {
+            text = ""
+            height = 20
+        })
+
+        // Feedback
+        container.addView(TextView(this).apply {
+            text = getString(R.string.dialog_feedback)
+            textSize = 14f
+            setLineSpacing(6f, 1f)
+        })
+
+        // Separator
+        container.addView(TextView(this).apply {
+            text = ""
+            height = 20
+        })
+
+        // Disclaimer
+        container.addView(TextView(this).apply {
+            text = getString(R.string.dialog_disclaimer)
+            textSize = 12f
+            setTextColor(0xff888888.toInt())
+            setLineSpacing(4f, 1f)
+        })
+
+        scrollView.addView(container)
+
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.dialog_about_title))
+            .setView(scrollView)
+            .setPositiveButton("知道了", null)
+            .show()
     }
 
     private fun getLocalIpAddress(): String {
