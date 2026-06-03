@@ -71,7 +71,7 @@ class SettingsActivity : AppCompatActivity() {
                     getString(R.string.pref_scale_factor_05x)
                 )
                 entryValues = arrayOf("1.0", "0.75", "0.5")
-                setDefaultValue("0.75")
+                setDefaultValue("1.0")
                 summaryProvider = androidx.preference.ListPreference.SimpleSummaryProvider.getInstance()
             }
             videoCategory.addPreference(scaleFactor)
@@ -104,7 +104,7 @@ class SettingsActivity : AppCompatActivity() {
                 key = "rtsp_enabled"
                 title = "RTSP 流媒体"
                 summary = "启用 RTSP 流媒体（端口 " + AppSettings.getRtspPort(context) + "），供 NVR/HomeAssistant 等客户端使用"
-                setDefaultValue(true)
+                setDefaultValue(false)
             }
             networkCategory.addPreference(rtspEnabled)
 
@@ -287,7 +287,7 @@ class SettingsActivity : AppCompatActivity() {
                     getString(R.string.pref_recording_strategy_event)
                 )
                 entryValues = arrayOf("motion", "event")
-                setDefaultValue("motion")
+                setDefaultValue("event")
                 summaryProvider = androidx.preference.ListPreference.SimpleSummaryProvider.getInstance()
             }
             recordingCategory.addPreference(recordingStrategy)

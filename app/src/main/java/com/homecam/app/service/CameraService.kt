@@ -214,8 +214,11 @@ class CameraService : LifecycleService() {
         try { if (cameraPoweredOn.get()) { initCamera(); Log.d(TAG, "initCamera() called") } else { Log.d(TAG, "cameraPoweredOn=false, skipping initCamera") } }
         catch (e: Exception) { Log.e(TAG, "initCamera FAILED", e) }
 
-        try { initDetectors(); Log.d(TAG, "initDetectors() done") }
-        catch (e: Exception) { Log.e(TAG, "initDetectors FAILED", e) }
+        // 在后台线程初始化 AI 检测器（MediaPipe 模型加载较慢，避免阻塞主线程导致 ANR）
+        detectExecutor?.submit {
+            try { initDetectors(); Log.d(TAG, "initDetectors() done") }
+            catch (e: Exception) { Log.e(TAG, "initDetectors FAILED", e) }
+        }
 
         try { startWebServer(); Log.d(TAG, "startWebServer() done") }
         catch (e: Exception) { Log.e(TAG, "startWebServer FAILED", e) }

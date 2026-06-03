@@ -9,8 +9,8 @@ object AppSettings {
         PreferenceManager.getDefaultSharedPreferences(context)
 
     fun getScaleFactor(context: Context): Float {
-        val value = prefs(context).getString("scale_factor", "0.75") ?: "0.75"
-        return value.toFloatOrNull()?.coerceIn(0.1f, 1.0f) ?: 0.75f
+        val value = prefs(context).getString("scale_factor", "1.0") ?: "1.0"
+        return value.toFloatOrNull()?.coerceIn(0.1f, 1.0f) ?: 1.0f
     }
 
     fun getCameraIndex(context: Context): Int {
@@ -53,7 +53,7 @@ object AppSettings {
     }
 
     fun isRtspEnabled(context: Context): Boolean =
-        prefs(context).getBoolean("rtsp_enabled", true)
+        prefs(context).getBoolean("rtsp_enabled", false)
 
     fun isMjpgEnabled(context: Context): Boolean =
         prefs(context).getBoolean("mjpg_enabled", true)
@@ -108,7 +108,7 @@ object AppSettings {
         prefs(context).getBoolean("detection_overlay", true)
 
     fun getRecordingStrategy(context: Context): String =
-        prefs(context).getString("recording_strategy", "motion") ?: "motion"
+        prefs(context).getString("recording_strategy", "event") ?: "event"
 
     fun getDetectionIntervalFrames(context: Context): Int {
         val value = prefs(context).getString("detection_interval", "3") ?: "3"
