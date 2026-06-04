@@ -180,6 +180,27 @@ nav {
     box-shadow: 0 0 8px rgba(233, 69, 96, 0.4);
 }
 
+.battery {
+    font-size: 0.75rem;
+    font-weight: 600;
+    font-family: monospace;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--bg);
+    color: #4caf50;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.battery.low {
+    color: #ff9800;
+}
+
+.battery.critical {
+    color: #f44336;
+    animation: pulse 1.5s infinite;
+}
+
 .event-log {
     padding: 12px;
     background: var(--card);

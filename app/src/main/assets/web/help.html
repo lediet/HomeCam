@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HomeCam 使用说明</title>
+<style>
+  :root {
+    --primary: #4f46e5;
+    --primary-light: #eef2ff;
+    --primary-dark: #3730a3;
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --text: #1e293b;
+    --text-dim: #64748b;
+    --border: #e2e8f0;
+    --accent: #f59e0b;
+    --success: #10b981;
+    --danger: #ef4444;
+    --te: #0891b2;
+    --radius: 12px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+  }
+
+  .hero {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+    color: white;
+    padding: 48px 24px 40px;
+    text-align: center;
+  }
+  .hero h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .hero p {
+    font-size: 1rem;
+    opacity: .85;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+  .hero .badge {
+    display: inline-block;
+    margin-top: 16px;
+    padding: 4px 16px;
+    border-radius: 20px;
+    background: rgba(255,255,255,.2);
+    font-size: .85rem;
+  }
+
+  .toc {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .toc-inner {
+    display: flex;
+    gap: 0;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 0 16px;
+  }
+  .toc a {
+    flex-shrink: 0;
+    display: block;
+    padding: 12px 16px;
+    font-size: .82rem;
+    color: var(--text-dim);
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+    transition: all .2s;
+  }
+  .toc a:hover,
+  .toc a.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+  }
+
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 32px 20px 64px;
+  }
+
+  .section {
+    margin-bottom: 40px;
+  }
+  .section h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--primary-light);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section h2 .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: white;
+    font-size: .85rem;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .section h2 .num.te {
+    background: var(--te);
+  }
+  .section h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin: 20px 0 8px;
+    color: var(--primary-dark);
+  }
+  .section h4 {
+    font-size: .95rem;
+    font-weight: 600;
+    margin: 14px 0 6px;
+  }
+  .section p {
+    margin-bottom: 10px;
+    color: var(--text);
+  }
+  .section ul, .section ol {
+    margin: 8px 0 12px 20px;
+  }
+  .section li {
+    margin-bottom: 4px;
+  }
+
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    transition: box-shadow .2s;
+  }
+  .card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,.08);
+  }
+  .card .icon {
+    font-size: 1.5rem;
+    margin-bottom: 6px;
+  }
+  .card h4 {
+    font-size: .95rem;
+    margin-bottom: 4px;
+  }
+  .card p {
+    font-size: .82rem;
+    color: var(--text-dim);
+    margin: 0;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+    margin: 16px 0;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .85rem;
+  }
+  thead {
+    background: var(--primary-light);
+  }
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  td {
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover td {
+    background: #fafaff;
+  }
+
+  .callout {
+    padding: 14px 16px;
+    border-radius: var(--radius);
+    margin: 16px 0;
+    font-size: .88rem;
+    border-left: 4px solid;
+  }
+  .callout.info {
+    background: var(--primary-light);
+    border-color: var(--primary);
+  }
+  .callout.warn {
+    background: #fffbeb;
+    border-color: var(--accent);
+  }
+  .callout.tip {
+    background: #ecfdf5;
+    border-color: var(--success);
+  }
+  .callout.te {
+    background: #ecfeff;
+    border-color: var(--te);
+  }
+
+  code {
+    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    font-size: .82rem;
+    background: #f1f5f9;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  pre {
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 16px;
+    border-radius: var(--radius);
+    overflow-x: auto;
+    font-size: .82rem;
+    line-height: 1.5;
+    margin: 12px 0;
+  }
+
+  .img-placeholder {
+    margin: 16px auto;
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 2px dashed var(--border);
+    background: var(--card);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    max-width: 800px;
+  }
+  .img-placeholder img {
+    max-width: 100%;
+    max-height: 520px;
+    width: auto;
+    height: auto;
+    display: block;
+    border-radius: 6px;
+  }
+  .img-placeholder .caption {
+    padding: 8px 12px;
+    font-size: .8rem;
+    color: var(--text-dim);
+    background: var(--bg);
+    text-align: center;
+    width: 100%;
+  }
+
+  .tag {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: .75rem;
+    font-weight: 500;
+  }
+  .tag.green { background: #ecfdf5; color: #059669; }
+  .tag.orange { background: #fffbeb; color: #d97706; }
+  .tag.blue { background: var(--primary-light); color: var(--primary); }
+  .tag.red { background: #fef2f2; color: #dc2626; }
+  .tag.gray { background: #f1f5f9; color: #64748b; }
+  .tag.te { background: #ecfeff; color: #0891b2; }
+
+  .step-list {
+    list-style: none;
+    margin: 16px 0 !important;
+    padding: 0;
+  }
+  .step-list li {
+    display: flex;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    align-items: flex-start;
+  }
+  .step-list li:last-child { border-bottom: none; }
+  .step-list .step-num {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .8rem;
+    font-weight: 600;
+  }
+  .step-list .step-body { flex: 1; }
+  .step-list .step-body strong { display: block; font-size: .9rem; }
+  .step-list .step-body span { font-size: .82rem; color: var(--text-dim); }
+
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+    margin: 16px 0;
+  }
+  .feature-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    transition: box-shadow .2s;
+  }
+  .feature-card:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,.08);
+  }
+  .feature-card .fc-head {
+    padding: 16px 16px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .feature-card .fc-head .fc-icon {
+    font-size: 1.6rem;
+  }
+  .feature-card .fc-head h4 {
+    margin: 0;
+    font-size: .95rem;
+  }
+  .feature-card .fc-body {
+    padding: 12px 16px 16px;
+    font-size: .82rem;
+    color: var(--text-dim);
+  }
+  .feature-card .fc-body p { margin-bottom: 6px; font-size: .82rem; color: var(--text-dim); }
+
+  .api-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: .85rem;
+    gap: 12px;
+  }
+  .api-row:last-child { border-bottom: none; }
+  .api-row .method {
+    font-family: monospace;
+    font-size: .75rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--primary-light);
+    color: var(--primary);
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .api-row .path {
+    flex: 1;
+    font-family: monospace;
+    font-size: .82rem;
+  }
+  .api-row .desc {
+    color: var(--text-dim);
+    font-size: .8rem;
+    text-align: right;
+  }
+
+  /* TE card diagram */
+  .card-diagram {
+    font-family: monospace;
+    font-size: .82rem;
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 16px 20px;
+    border-radius: var(--radius);
+    overflow-x: auto;
+    line-height: 1.6;
+    margin: 12px 0;
+    white-space: pre;
+  }
+
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 1.5rem; }
+    .hero { padding: 32px 16px 28px; }
+    .container { padding: 20px 14px 48px; }
+    .feature-grid { grid-template-columns: 1fr; }
+    .card-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Hero -->
+<div class="hero">
+  <h1>📷 HomeCam 使用说明</h1>
+  <p>将 Android 手机变身为智能网络摄像头 · 完全免费 · 本地 AI · 开源<br>配套 HomeCam-TE 显示终端，支持多设备集中监控</p>
+  <div class="badge">lediet</div>
+</div>
+
+<!-- TOC -->
+<nav class="toc" id="toc">
+  <div class="toc-inner">
+    <a href="#intro" class="active">简介</a>
+    <a href="#start">安装启动</a>
+    <a href="#live">实时监控</a>
+    <a href="#te">TE 终端</a>
+    <a href="#ai">AI 检测</a>
+    <a href="#record">录像回放</a>
+    <a href="#stream">网络串流</a>
+    <a href="#settings">设置</a>
+    <a href="#faq">常见问题</a>
+  </div>
+</nav>
+
+<div class="container">
+
+<!-- =============== 1 =============== -->
+<div class="section" id="intro">
+  <h2><span class="num">1</span> 简介</h2>
+  <p><strong>HomeCam</strong> 是一款将 Android 手机变身为智能网络摄像头的应用。利用手机的摄像头进行实时监控，内置多种 AI 检测功能（人物移动、婴儿哭声、睡眠、跌倒等），支持 Web 浏览器和 RTSP 协议远程查看。</p>
+  <p><strong>HomeCam-TE</strong> 是配套的 Android 显示终端，用于在局域网内同时监控多台 HomeCam 设备，支持语音+振动报警、摄像头控制、历史录像查看等功能。</p>
+  <div class="callout tip">
+    <strong>核心特点</strong>：完全免费 · 无广告 · 本地 AI 处理（数据不上传云端） · 开源 · Server + Terminal 双端协作
+  </div>
+</div>
+
+<!-- =============== 2 =============== -->
+<div class="section" id="start">
+  <h2><span class="num">2</span> 安装与启动</h2>
+
+  <div class="img-placeholder">
+    <img src="homecam_main.png" alt="HomeCam 主界面" style="background:#f1f5f9;min-height:200px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);" onerror="this.style.display='none'">
+    <div class="caption">图：HomeCam 主界面 — 启动服务、切换摄像头、查看状态</div>
+  </div>
+
+  <h3>HomeCam 服务器端</h3>
+  <ol class="step-list">
+    <li>
+      <span class="step-num">1</span>
+      <div class="step-body"><strong>安装 APK</strong><span>在 Android 手机上安装 HomeCam</span></div>
+    </li>
+    <li>
+      <span class="step-num">2</span>
+      <div class="step-body"><strong>启动服务</strong><span>点击「启动服务」，授予摄像头、通知等权限</span></div>
+    </li>
+    <li>
+      <span class="step-num">3</span>
+      <div class="step-body"><strong>开始监控</strong><span>摄像头预览开启，Web 和 RTSP 服务器后台运行</span></div>
+    </li>
+    <li>
+      <span class="step-num">4</span>
+      <div class="step-body"><strong>关闭屏幕</strong><span>应用持有关键性唤醒锁，可在后台持续运行</span></div>
+    </li>
+  </ol>
+
+  <h3>连接方式</h3>
+  <div class="card-grid">
+    <div class="card">
+      <div class="icon">🏠</div>
+      <h4>局域网直接访问</h4>
+      <p>浏览器访问 <code>http://手机IP:8080</code><br>手机 IP 可在应用首页查看</p>
+    </div>
+    <div class="card">
+      <div class="icon">📺</div>
+      <h4>RTSP 播放器</h4>
+      <p><code>rtsp://手机IP:8554/live</code><br>VLC / ffplay 等均可播放，可接入NVR或Homeassistant等</p>
+    </div>
+    <div class="card">
+      <div class="icon">📱</div>
+      <h4>HomeCam-TE 终端</h4>
+      <p>专用 Android 显示终端<br>支持多设备网格、语音/振动报警</p>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <strong>后台保活提示</strong>：部分手机厂商会限制后台运行。建议在系统设置中将 HomeCam 加入省电白名单，并在多任务界面锁定应用。
+  </div>
+</div>
+
+<!-- =============== 3 =============== -->
+<div class="section" id="live">
+  <h2><span class="num">3</span> 实时监控</h2>
+
+  <h3>3.1 手机端界面</h3>
+  <ul>
+    <li><strong>启动/停止监控</strong>：启动后自动开始进行监控</li>
+    <li><strong>切换摄像头</strong>：点击弹出列表，可切换前后/广角摄像头</li>
+    <li><strong>录像开关</strong>：控制是否录制事件视频</li>
+    <li><strong>帮助按钮</strong>：右上角 <code>ⓘ</code> 打开关于/帮助/开源信息</li>
+  </ul>
+
+  <div class="img-placeholder">
+    <img src="homecam_web_main.png" alt="Web 端界面截图" style="background:#f1f5f9;min-height:200px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);" onerror="this.style.display='none'">
+    <div class="caption">图：Web 端界面 — 实时画面、摄像头切换、电源控制、事件日志</div>
+  </div>
+
+  <h3>3.2 Web 端界面</h3>
+  <p>浏览器打开后有两个选项卡：</p>
+
+  <h4>实时（Live）选项卡</h4>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>元素</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>实时画面</td><td>自动加载 MJPEG 视频流，断线自动重连</td></tr>
+        <tr><td>摄像头下拉</td><td>切换前置/后置/广角等可用摄像头</td></tr>
+        <tr><td>电源开关 ⚡</td><td>绿色 = 开启，红色闪烁 = 已关闭</td></tr>
+        <tr><td>旋转 ↻</td><td>每次点击画面顺时针旋转 90°</td></tr>
+        <tr><td>电量显示</td><td>显示手机剩余电量，低电量变色提醒</td></tr>
+        <tr><td>事件日志</td><td>底部显示最近 AI 检测事件列表</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>历史（History）选项卡</h4>
+  <ul>
+    <li><strong>视频列表</strong>：缩略图、时间、事件类型图标、时长、大小</li>
+    <li><strong>播放/下载</strong>：点击列表项播放，⬇ 按钮下载</li>
+    <li>每 15 秒自动刷新列表</li>
+  </ul>
+</div>
+
+<!-- =============== 4 =============== -->
+<div class="section" id="te">
+  <h2><span class="num te">4</span> HomeCam-TE 显示终端</h2>
+
+  <div class="callout te">
+    <strong>什么是 HomeCam-TE？</strong> 专为 HomeCam 设计的 Android 显示终端，在一台设备上同时监控多台 HomeCam 摄像头。采用 Jetpack Compose + Material3 构建，提供卡片式网格监控、语音+振动报警、历史录像回放等功能。
+  </div>
+
+  <h3>4.1 快速开始</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>步骤</th><th>操作</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>在 Android 设备上安装 HomeCam-TE APK</td></tr>
+        <tr><td>2</td><td>确保 TE 设备和 HomeCam 设备在同一局域网</td></tr>
+        <tr><td>3</td><td>点击搜索图标自动发现，或点击右上角 <code>+</code> 手动添加摄像头（IP+端口）</td></tr>
+        <tr><td>4</td><td>连接成功自动显示视频画面</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>4.2 多设备监控网格</h3>
+
+  <p><strong>卡片结构：</strong></p>
+  <div class="img-placeholder">
+    <img src="homecam-TE_card.png" alt="视频卡片界面截图" style="background:#f1f5f9;min-height:200px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);" onerror="this.style.display='none'">
+    <div class="caption">图：视频卡片界面 — 点击放大、长按编辑/删除</div>
+  </div>
+
+  <ul>
+    <li>点击画面进入全屏预览，长按弹出菜单（编辑/画面旋转/切换流格式/删除）</li>
+    <li>点击 <code>📁</code> 进入历史录像查看，点击 <code>＞</code> 查看最近 20 条事件</li>
+    <li>视频流格式按、画面方向设备记忆选择</li>
+  </ul>
+
+  <h3>4.3 设备发现与添加</h3>
+  <div class="card-grid">
+    <div class="card">
+      <div class="icon">➕</div>
+      <h4>手动添加</h4>
+      <p>点击右上角 <code>+</code>，输入 IP 地址和端口（默认 8080），可选设备名称</p>
+    </div>
+    <div class="card">
+      <div class="icon">🔍</div>
+      <h4>UDP 自动发现</h4>
+      <p>点击搜索图标，广播 <code>HOMECAM_DISCOVER</code>，3 秒收集窗口，按设备 ID 去重</p>
+    </div>
+    <div class="card">
+      <div class="icon">💾</div>
+      <h4>自动持久化</h4>
+      <p>设备自动保存到 Room 数据库，重启应用自动恢复连接</p>
+    </div>
+  </div>
+
+  <h3>4.4 事件监控与报警</h3>
+  <p><strong>事件同步</strong>：每 5 秒轮询 <code>/api/events</code>，增量更新（时间戳比较），内存保留最近 20 条。</p>
+  <p><strong>语音报警（TTS）</strong>：使用 Android TTS API，中文播报事件类型。</p>
+  <p><strong>振动报警</strong>：不同事件不同振动时长。</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>事件类型</th><th>TTS 播报内容</th><th>振动时长</th></tr></thead>
+      <tbody>
+        <tr><td>有人进入</td><td>"有xxx进入了"</td><td>200ms</td></tr>
+        <tr><td>有人离开</td><td>"有xxx离开了"</td><td>200ms</td></tr>
+        <tr><td>婴儿哭声</td><td>"检测到婴儿哭声"</td><td>1000ms</td></tr>
+        <tr><td>宝宝睡着</td><td>"宝宝睡着了"</td><td>100ms</td></tr>
+        <tr><td>宝宝睡醒</td><td>"宝宝睡醒了"</td><td>100ms</td></tr>
+        <tr><td>检测到摔倒</td><td>"检测到有人摔倒"</td><td>1000ms</td></tr>
+        <tr><td>有人站起</td><td>"有人站起来了"</td><td>100ms</td></tr>
+        <tr><td>玩手机</td><td>"有人在玩手机（XX%）"</td><td>200ms</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card-grid">
+    <div class="card">
+      <h4>报警开关</h4>
+      <p>设置页面支持总开关、按事件类型独立开关、语音/振动独立开关</p>
+    </div>
+    <div class="card">
+      <h4>摄像头控制</h4>
+      <p>电源开关（MJPEG 自动刷新）、镜头切换、流格式切换、设备编辑</p>
+    </div>
+  </div>
+
+  <h3>4.5 历史录像查看</h3>
+  <p>点击卡片下方的 <code>📁</code> 图标进入历史录像页面：</p>
+  <ul>
+    <li><strong>上半部分</strong>：录像列表，缩略图（<code>/api/thumbnails</code>）、事件类型彩色标签、时间、时长、文件大小</li>
+    <li><strong>下半部分</strong>：ExoPlayer MP4 播放器，支持播放控制和进度拖动</li>
+    <li>点击列表项自动切换播放内容</li>
+  </ul>
+
+  <h3>4.6 TE 设置</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>设置项</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>报警总开关</td><td>开启/关闭所有报警</td></tr>
+        <tr><td>按事件类型开关</td><td>分别控制 6 类事件的报警</td></tr>
+        <tr><td>振动开关</td><td>独立控制振动报警</td></tr>
+        <tr><td>语音开关</td><td>独立控制 TTS 语音播报</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- =============== 5 =============== -->
+<div class="section" id="ai">
+  <h2><span class="num">5</span> AI 智能检测</h2>
+
+  <div class="callout info">
+    <strong>隐私保护</strong>：所有 AI 推理在手机本地运行，视频和音频数据不会离开你的设备，无需联网。
+  </div>
+
+  <div class="feature-grid">
+
+    <div class="feature-card">
+      <div class="fc-head">
+        <span class="fc-icon">🚶</span>
+        <h4>人物移动检测 <span class="tag green">默认开启</span></h4>
+      </div>
+      <div class="fc-body">
+        <p>通过 MediaPipe Object Detection 检测目标（人/猫/狗/鸟）。</p>
+        <p>目标进入画面 → <code>有人进入了</code>；目标离开超过 2 分钟 → <code>有人离开了</code>。</p>
+        <p>可在设置中切换检测目标类别。</p>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="fc-head">
+        <span class="fc-icon">🔊</span>
+        <h4>婴儿哭声检测 <span class="tag orange">默认关闭</span></h4>
+      </div>
+      <div class="fc-body">
+        <p>通过 YAMNet 音频分类模型实时分析麦克风声音。</p>
+        <p>检测到哭声 → <code>婴儿哭声</code>。需要麦克风权限。</p>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="fc-head">
+        <span class="fc-icon">💤</span>
+        <h4>睡眠检测 <span class="tag orange">默认关闭</span></h4>
+      </div>
+      <div class="fc-body">
+        <p><strong>面部通道</strong>：分析眼部纵横比，闭眼 5 帧以上判定入睡，睁眼判定睡醒。</p>
+        <p><strong>姿态辅助通道</strong>：面部不可见时（侧睡/背对），躯干水平持续 30 秒自动判定入睡。</p>
+        <p>睡眠状态下跌倒检测自动暂停。</p>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="fc-head">
+        <span class="fc-icon">😵</span>
+        <h4>跌倒检测 <span class="tag orange">默认关闭</span></h4>
+      </div>
+      <div class="fc-body">
+        <p>通过 Pose Landmarker 分析躯干角度。</p>
+        <p>躯干水平超过阈值 → <code>检测到有人摔倒</code>；站直 → <code>有人站起来了</code>。</p>
+        <p><strong>注意</strong>：手机横置安装时，需在设置中将「手机方向」改为横屏。</p>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="fc-head">
+        <span class="fc-icon">📱</span>
+        <h4>手机使用检测 <span class="tag orange">默认关闭</span></h4>
+      </div>
+      <div class="fc-body">
+        <p>通过物体检测（识别手机）+ 手部关键点联合判定。</p>
+        <p>检测到手持手机 → <code>有人在玩手机（XX%）</code>。冷却 30 秒。</p>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="fc-head">
+        <span class="fc-icon">🎯</span>
+        <h4>检测目标选择</h4>
+      </div>
+      <div class="fc-body">
+        <p>在设置中可选择检测目标类别：</p>
+        <p><span class="tag blue">person</span> 人 <span class="tag blue">cat</span> 猫 <span class="tag blue">dog</span> 狗 <span class="tag blue">bird</span> 鸟</p>
+      </div>
+    </div>
+  </div>
+
+  <h3>5.1 检测性能设置</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>设置项</th><th>说明</th><th>建议</th></tr></thead>
+      <tbody>
+        <tr><td>推理后端</td><td>CPU 或 GPU</td><td>GPU 更快但更耗电</td></tr>
+        <tr><td>检测间隔</td><td>每 N 帧检测一次（1-10）</td><td>默认 3，值越大越省电</td></tr>
+        <tr><td>检测叠加层</td><td>视频流上显示检测框和标签</td><td>关闭可提升性能</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- =============== 6 =============== -->
+<div class="section" id="record">
+  <h2><span class="num">6</span> 录像与回放</h2>
+
+  <h3>6.1 录像策略</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>策略</th><th>触发方式</th><th>适用场景</th></tr></thead>
+      <tbody>
+        <tr><td><span class="tag blue">事件触发</span>（默认）</td><td>检测到特定事件时录制（哭声、睡眠、跌倒、手机使用、进入/离开）</td><td>节省存储空间</td></tr>
+        <tr><td><span class="tag green">有人/动物存在</span></td><td>检测到任何移动目标时持续录制</td><td>需要全程记录时使用</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>6.2 录像设置</h3>
+  <div class="card-grid">
+    <div class="card">
+      <h4>保存时长</h4>
+      <p>事件触发前后各录制 2-5 秒（默认 3 秒），确保捕获事件前后上下文</p>
+    </div>
+    <div class="card">
+      <h4>最大视频数</h4>
+      <p>10-1000 可选（默认 50）。超出时自动删除最旧视频</p>
+    </div>
+  </div>
+
+  <h3>6.3 查看录像</h3>
+  <ul>
+    <li><strong>手机端</strong>：点击主界面「录像」按钮打开图库</li>
+    <li><strong>Web 端</strong>：切换到「历史」选项卡浏览、播放、下载</li>
+    <li><strong>HomeCam-TE</strong>：点击卡片 <code>📁</code> 图标进入历史录像页面</li>
+  </ul>
+
+  <div class="img-placeholder">
+    <img src="homecam_web_his.png" alt="录像回放截图" style="background:#f1f5f9;min-height:160px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);" onerror="this.style.display='none'">
+    <div class="caption">图：Web 端历史记录 — 视频列表、缩略图、播放器</div>
+  </div>
+</div>
+
+<!-- =============== 7 =============== -->
+<div class="section" id="stream">
+  <h2><span class="num">7</span> 网络串流</h2>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="icon">🌍</div>
+      <h4>MJPEG 流 <span class="tag green">默认开启</span></h4>
+      <p>端口 8080，任意浏览器访问 <code>http://手机IP:8080</code></p>
+    </div>
+    <div class="card">
+      <div class="icon">📺</div>
+      <h4>RTSP 流 <span class="tag orange">默认关闭</span></h4>
+      <p>端口 8554，URL <code>rtsp://手机IP:8554/live</code></p>
+    </div>
+    <div class="card">
+      <div class="icon">🔍</div>
+      <h4>UDP 自动发现</h4>
+      <p>端口 45678，监听 <code>HOMECAM_DISCOVER</code> 广播，配合 TE/HA 自动发现</p>
+    </div>
+  </div>
+
+  <h3>7.1 MJPEG 流</h3>
+  <ul>
+    <li>默认开启，端口 8080，自适应 JPEG 质量（45-75）</li>
+    <li>支持多个客户端同时连接</li>
+  </ul>
+
+  <h3>7.2 RTSP 流</h3>
+  <ul>
+    <li>需在设置中手动开启</li>
+    <li>H.264 编码，1 Mbps 码率，1 秒 I 帧间隔</li>
+    <li>支持 RTP/UDP 和 RTP/TCP 传输方式</li>
+    <li>事件信息嵌入视频流（SEI NAL 单元）</li>
+  </ul>
+
+  <div class="callout tip">
+    <strong>提示</strong>：RTSP 流适合在智能电视、Home Assistant、HomeCam-TE 等平台集成使用。MJPEG 流开箱即用，适合浏览器快速查看。
+  </div>
+</div>
+
+<!-- =============== 8 =============== -->
+<div class="section" id="settings">
+  <h2><span class="num">8</span> 设置说明</h2>
+
+  <h3>8.1 视频</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>设置项</th><th>选项</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>分辨率缩放</td><td>1.0 / 0.75 / 0.5</td><td>降低可提升性能</td></tr>
+        <tr><td>帧率</td><td>15 / 30 FPS</td><td>15 FPS 更省电</td></tr>
+        <tr><td>手机方向</td><td>竖屏 / 横屏</td><td>影响跌倒检测的躯干角度计算</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>8.2 网络</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>设置项</th><th>默认值</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>Web 端口</td><td>8080</td><td>HTTP 网页和 MJPEG 流端口</td></tr>
+        <tr><td>RTSP 端口</td><td>8554</td><td>RTSP 直播端口</td></tr>
+        <tr><td>RTSP 服务器</td><td>关闭</td><td>开启后可用播放器连接</td></tr>
+        <tr><td>MJPEG 服务器</td><td>开启</td><td>关闭后 Web 端无法看到视频</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>8.3 AI 检测</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>设置项</th><th>默认</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>人物移动检测</td><td>开启</td><td>核心检测开关</td></tr>
+        <tr><td>检测目标</td><td>person</td><td>person / cat / dog / bird</td></tr>
+        <tr><td>婴儿哭声检测</td><td>关闭</td><td>需麦克风权限</td></tr>
+        <tr><td>睡眠检测</td><td>关闭</td><td>面部 + 姿态双通道</td></tr>
+        <tr><td>跌倒检测</td><td>关闭</td><td>需配合手机方向设置</td></tr>
+        <tr><td>手机使用检测</td><td>关闭</td><td>检测手持手机行为</td></tr>
+        <tr><td>推理后端</td><td>CPU</td><td>CPU 稳定，GPU 更快但增加功耗</td></tr>
+        <tr><td>检测间隔</td><td>3 帧</td><td>值越大越省电</td></tr>
+        <tr><td>检测叠加层</td><td>开启</td><td>视频流上显示检测框</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>8.4 录像</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>设置项</th><th>默认</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>录像策略</td><td>事件触发</td><td>事件触发 / 有人存在</td></tr>
+        <tr><td>保存时长</td><td>3 秒</td><td>事件前后各 N 秒（2-5）</td></tr>
+        <tr><td>最大视频数量</td><td>50</td><td>超出自动清理（10-1000）</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- =============== 9 =============== -->
+<div class="section" id="faq">
+  <h2><span class="num">9</span> 常见问题</h2>
+
+  <div class="card" style="margin-bottom:12px">
+    <h4>画面卡顿 / 延迟大？</h4>
+    <ul>
+      <li>检查网络环境，网络环质量会对画面造成极大影响</li>
+      <li>关闭不必要的 AI 检测功能，尤其是关闭检测标记方框可以极大提高画面流畅度</li>
+      li>降低分辨率缩放到 0.75 或 0.5</li>
+      <li>降低帧率到 15 FPS</li>
+      <li>使用 5G Wi-Fi 而非 2.4G</li>
+    </ul>
+  </div>
+
+  <div class="card" style="margin-bottom:12px">
+    <h4>跌倒检测一直误报？</h4>
+    <p>检查手机安装方向。手机横着放时，需在设置中将「手机方向」改为「横屏」。睡眠检测开启时，跌倒检测在睡眠状态下自动暂停。</p>
+  </div>
+
+  <div class="card" style="margin-bottom:12px">
+    <h4>RTSP 连接不上？</h4>
+    <ul>
+      <li>确认已在设置中开启 RTSP 开关</li>
+      <li>确认防火墙未阻止 8554 端口</li>
+      <li>部分播放器需切换 RTP/UDP ↔ RTP/TCP</li>
+    </ul>
+  </div>
+
+  <div class="card" style="margin-bottom:12px">
+    <h4>HomeCam-TE 搜索不到设备？</h4>
+    <ul>
+      <li>确认 TE 和 HomeCam 在同一局域网</li>
+      <li>确认 HomeCam 服务已启动</li>
+      <li>部分手机需要在亮屏状态下才发送状态信息，需在亮屏状态下再进行自动搜索添加</li>
+      <li>部分路由器隔离了广播包，可尝试手动添加 IP</li>
+    </ul>
+  </div>
+
+  <div class="card" style="margin-bottom:12px">
+    <h4>应用被杀后台？</h4>
+    <ul>
+      <li>在系统设置中将 HomeCam 加入省电白名单</li>
+      <li>在多任务界面锁定应用</li>
+      <li>部分厂商（小米、华为、OPPO 等）需在系统管家中允许后台运行</li>
+    </ul>
+  </div>
+
+  <div class="card" style="margin-bottom:12px">
+    <h4>录像文件保存在哪里？</h4>
+    <p>HomeCam 端内部存储 <code>Android/data/com.homecam.app/files/HomeCam/</code> 目录。</p>
+  </div>
+</div>
+
+<!-- Footer -->
+<div style="text-align:center;padding:32px 0 16px;border-top:1px solid var(--border);color:var(--text-dim);font-size:.82rem">
+  <p>HomeCam · 开源免费 · <a href="https://github.com/lediet/HomeCam" style="color:var(--primary)">GitHub</a></p>
+  <p style="margin-top:4px;">AI 检测辅助功能，不能完全替代专业安防设备。请勿用于非法用途。</p>
+</div>
+
+</div><!-- /container -->
+
+<script>
+(function() {
+  const links = document.querySelectorAll('.toc a');
+  const sections = document.querySelectorAll('.section');
+  if (!links.length || !sections.length) return;
+
+  function setActive(id) {
+    links.forEach(a => a.classList.remove('active'));
+    const match = document.querySelector('.toc a[href="#' + id + '"]');
+    if (match) match.classList.add('active');
+  }
+
+  links.forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      const id = a.getAttribute('href').slice(1);
+      const el = document.getElementById(id);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setActive(id);
+    });
+  });
+
+  const observer = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) {
+        setActive(entry.target.id);
+        break;
+      }
+    }
+  }, { rootMargin: '-80px 0px -60% 0px' });
+  sections.forEach(s => observer.observe(s));
+})();
+</script>
+
+</body>
+</html>

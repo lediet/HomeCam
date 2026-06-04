@@ -18,5 +18,6 @@ Thumbs.db
 .claude/
 
 # --- Temp / Misc ---
+.temp/
 tmp_fix_audio.py
 *.log

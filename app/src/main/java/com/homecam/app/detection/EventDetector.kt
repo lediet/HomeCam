@@ -66,6 +66,12 @@ class EventDetector(
     private var lastWakeUpTriggerTime = 0L
     private val sleepCooldownMs = 10000L
 
+    // Pose-assisted sleep: face visibility tracking for fallback when face is not visible
+    private var faceNotVisibleFrames = 0
+    private val FACE_NOT_VISIBLE_THRESHOLD = 30
+    private var lastTorsoHorizontalTime = 0L
+    private val TORSO_HORIZONTAL_SLEEP_TIMEOUT = 30000L
+
     // Eye landmarks indices (MediaPipe 478-point face mesh)
     // Right eye: [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246]
     // Left eye: [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398]
@@ -247,11 +253,23 @@ audioClassifier = AudioClassifier.createFromFile(context, "yamnet.tflite")
                 }
             }
 
-            // --- Fall detection (only when person detected) ---
+            // --- Fall detection (only when person detected with reasonable full-body box) ---
             if (personFound && AppSettings.isFallDetectionEnabled(context) && detectionTarget == "person") {
                 val personRect = lastPersonRect ?: lastBoxRect
                 if (personRect != null) {
-                    analyzeFall(bitmap, personRect)
+                    // Skip fall detection when the bounding box is too small or too flat —
+                    // this means only a partial body (e.g. an arm) is visible, and
+                    // PoseLandmarker's estimated torso landmarks will be unreliable.
+                    val imageArea = bitmap.width.toFloat() * bitmap.height.toFloat()
+                    val boxArea = personRect.width() * personRect.height()
+                    val boxHeight = personRect.height()
+                    val areaPct = boxArea / imageArea * 100
+                    val heightPct = boxHeight / bitmap.height * 100
+                    if (boxArea < imageArea * 0.03f || boxHeight < bitmap.height * 0.15f) {
+                        Log.d(TAG, "skip fall: box too small (area=${"%.1f".format(areaPct)}%, height=${"%.1f".format(heightPct)}%)")
+                    } else {
+                        analyzeFall(bitmap, personRect)
+                    }
                 }
             }
 
@@ -334,7 +352,11 @@ audioClassifier = AudioClassifier.createFromFile(context, "yamnet.tflite")
     }
 
     private fun onFaceLandmarkResult(result: FaceLandmarkerResult) {
-        if (result.faceLandmarks().isEmpty()) return
+        if (result.faceLandmarks().isEmpty()) {
+            faceNotVisibleFrames++
+            return
+        }
+        faceNotVisibleFrames = 0
 
         val landmarks = result.faceLandmarks()[0]
         val rightEAR = computeEAR(landmarks, RIGHT_EYE_IDX)
@@ -452,26 +474,22 @@ audioClassifier = AudioClassifier.createFromFile(context, "yamnet.tflite")
     private fun onPoseLandmarkResult(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>) {
         if (landmarks.size < 25) return
 
-        val leftShoulder = landmarks[11]
-        val rightShoulder = landmarks[12]
-        val leftHip = landmarks[23]
-        val rightHip = landmarks[24]
+        val torsoAngleDeg = computeTorsoAngle(landmarks)
+        if (torsoAngleDeg < 0f) return
 
-        val midShoulderX = (leftShoulder.x() + rightShoulder.x()) / 2f
-        val midShoulderY = (leftShoulder.y() + rightShoulder.y()) / 2f
-        val midHipX = (leftHip.x() + rightHip.x()) / 2f
-        val midHipY = (leftHip.y() + rightHip.y()) / 2f
-
-        val dx = midHipX - midShoulderX
-        val dy = midHipY - midShoulderY
-        val length = kotlin.math.sqrt(dx * dx + dy * dy)
-        if (length < 1e-6f) return
-
-        val isLandscape = AppSettings.isLandscapeMode(context)
-        val effectiveDy = if (isLandscape) dx else dy
-        val cosAngle = kotlin.math.abs(effectiveDy) / length
-        val torsoAngleDeg = Math.toDegrees(kotlin.math.acos(cosAngle.toDouble())).toFloat()
         val now = System.currentTimeMillis()
+
+        // --- Pose-assisted sleep detection ---
+        if (AppSettings.isSleepDetectionEnabled(context)) {
+            analyzePoseForSleep(landmarks, torsoAngleDeg)
+        }
+
+        // --- Skip fall detection when sleeping ---
+        if (sleepState == SleepState.SLEEPING) {
+            fallState = FallState.STANDING
+            fallCounter = 0
+            return
+        }
 
         Log.d(TAG, String.format("Fall detection: torsoAngle=%.1f, state=%s, counter=%d/%d",
             torsoAngleDeg, fallState.name, fallCounter, fallThreshold))
@@ -513,6 +531,65 @@ audioClassifier = AudioClassifier.createFromFile(context, "yamnet.tflite")
                     }
                 }
             }
+        }
+    }
+
+    /** Compute torso angle (reused by fall detection and sleep pose analysis) */
+    private fun computeTorsoAngle(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>): Float {
+        if (landmarks.size < 25) return -1f
+
+        val midShoulderX = (landmarks[11].x() + landmarks[12].x()) / 2f
+        val midShoulderY = (landmarks[11].y() + landmarks[12].y()) / 2f
+        val midHipX = (landmarks[23].x() + landmarks[24].x()) / 2f
+        val midHipY = (landmarks[23].y() + landmarks[24].y()) / 2f
+
+        val dx = midHipX - midShoulderX
+        val dy = midHipY - midShoulderY
+        val length = kotlin.math.sqrt(dx * dx + dy * dy)
+        if (length < 1e-6f) return -1f
+
+        // Torso too short means shoulder and hip landmarks are clustered together,
+        // which happens when PoseLandmarker only sees a partial body (arm, leg, etc.)
+        // and the estimated torso landmarks are unreliable. Skip this frame.
+        // 0.08 in normalized coordinates ≈ 8% of image dimension — a reasonable minimum
+        // for a meaningful torso.
+        if (length < 0.08f) {
+            Log.d(TAG, String.format("computeTorsoAngle: torso too short (len=%.3f), skipping", length))
+            return -1f
+        }
+
+        val isLandscape = AppSettings.isLandscapeMode(context)
+        val effectiveDy = if (isLandscape) dx else dy
+        val cosAngle = kotlin.math.abs(effectiveDy) / length
+        return Math.toDegrees(kotlin.math.acos(cosAngle.toDouble())).toFloat()
+    }
+
+    /** Pose-assisted sleep detection: fallback wake_up when face is not visible */
+    private fun analyzePoseForSleep(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>, torsoAngleDeg: Float) {
+        val isHorizontal = torsoAngleDeg > 50f
+        val now = System.currentTimeMillis()
+
+        if (sleepState == SleepState.AWAKE && faceNotVisibleFrames > 0) {
+            if (isHorizontal && faceNotVisibleFrames > FACE_NOT_VISIBLE_THRESHOLD) {
+                if (lastTorsoHorizontalTime == 0L) {
+                    lastTorsoHorizontalTime = now
+                } else if (now - lastTorsoHorizontalTime > TORSO_HORIZONTAL_SLEEP_TIMEOUT) {
+                    sleepState = SleepState.SLEEPING
+                    lastTorsoHorizontalTime = 0L
+                    Log.d(TAG, ">>> SLEEP event triggered (pose fallback)")
+                    onEventDetected("sleep")
+                }
+            } else {
+                lastTorsoHorizontalTime = 0L
+            }
+        }
+
+        // SLEEPING → upright torso → wake_up
+        if (sleepState == SleepState.SLEEPING && !isHorizontal) {
+            sleepState = SleepState.AWAKE
+            lastTorsoHorizontalTime = 0L
+            Log.d(TAG, ">>> WAKE_UP event triggered (pose: upright torso)")
+            onEventDetected("wake_up")
         }
     }
 

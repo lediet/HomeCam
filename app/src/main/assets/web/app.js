@@ -10,6 +10,7 @@
     const cameraStatus = document.getElementById('camera-status');
     const powerToggle = document.getElementById('power-toggle');
     const rotateBtn = document.getElementById('rotate-btn');
+    const batteryIndicator = document.getElementById('battery-indicator');
 
     let currentCameraId = '';
     let isSwitchingCamera = false;
@@ -182,6 +183,19 @@
                 if (data.current_camera_id && data.current_camera_id !== currentCameraId) {
                     currentCameraId = data.current_camera_id;
                     cameraDropdown.value = currentCameraId;
+                }
+                // Update battery indicator
+                if (data.battery_level !== undefined && data.battery_level >= 0) {
+                    batteryIndicator.textContent = data.battery_level + '%';
+                    batteryIndicator.className = 'battery';
+                    if (data.battery_level <= 15) {
+                        batteryIndicator.classList.add('critical');
+                    } else if (data.battery_level <= 30) {
+                        batteryIndicator.classList.add('low');
+                    }
+                } else {
+                    batteryIndicator.textContent = '--';
+                    batteryIndicator.className = 'battery';
                 }
             })
             .catch(() => {});

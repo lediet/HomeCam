@@ -14,6 +14,7 @@ import android.media.ImageReader
 import android.os.Handler
 import android.os.Looper
 import android.os.Build
+import android.os.BatteryManager
 import android.os.PowerManager
 import android.util.Log
 import android.view.Surface
@@ -64,6 +65,8 @@ class CameraService : LifecycleService() {
         var latestDetectionMs: Long = 0L
         @Volatile
         var recordingEnabled: Boolean = true
+        @Volatile
+        var batteryLevel: Int = -1
 
         // In-memory event history (always recorded, regardless of recordingEnabled)
         val eventHistory = mutableListOf<EventRecord>()
@@ -123,6 +126,14 @@ class CameraService : LifecycleService() {
         private set
     private var lastFrameTimeMs = 0L
     private var frameQualityCounter = 0
+
+    private val batteryHandler = Handler(Looper.getMainLooper())
+    private val batteryUpdateRunnable = object : Runnable {
+        override fun run() {
+            batteryLevel = getBatteryLevel()
+            batteryHandler.postDelayed(this, 60000L)
+        }
+    }
 
     override fun onCreate() {
         Log.d(TAG, "onCreate() start")
@@ -226,6 +237,9 @@ class CameraService : LifecycleService() {
         try { startRtspServer(); Log.d(TAG, "startRtspServer() done") }
         catch (e: Exception) { Log.e(TAG, "startRtspServer FAILED", e) }
 
+        // 延迟10秒后开始定期更新电量（每60秒）
+        batteryHandler.postDelayed(batteryUpdateRunnable, 10000L)
+
         return START_STICKY
     }
 
@@ -278,6 +292,13 @@ class CameraService : LifecycleService() {
         ).apply {
             acquire()
         }
+    }
+
+    private fun getBatteryLevel(): Int {
+        val intent = registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)) ?: return -1
+        val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+        return if (level >= 0 && scale > 0) (level * 100 / scale) else -1
     }
 
     private fun initCamera() {
@@ -821,7 +842,7 @@ class CameraService : LifecycleService() {
             eventDetector.startAudioDetection()
             Log.d(TAG, "Audio detector initialized and started")
         }
-        if (AppSettings.isFallDetectionEnabled(this)) {
+        if (AppSettings.isFallDetectionEnabled(this) || AppSettings.isSleepDetectionEnabled(this)) {
             Log.d(TAG, "Initializing pose detector...")
             eventDetector.initPoseDetector()
             Log.d(TAG, "Pose detector initialized")
@@ -894,6 +915,7 @@ class CameraService : LifecycleService() {
         h264Encoder?.stop()
         rtspServer?.stop()
         wakeLock?.let { if (it.isHeld) it.release() }
+        batteryHandler.removeCallbacks(batteryUpdateRunnable)
         detectExecutor?.shutdownNow()
         cameraExecutor.shutdownNow()
 

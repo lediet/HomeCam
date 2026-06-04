@@ -47,6 +47,7 @@ class CamWebServer(
             uri == "/" || uri == "/index.html" -> serveAsset("web/index.html", "text/html")
             uri == "/style.css" -> serveAsset("web/style.css", "text/css")
             uri == "/app.js" -> serveAsset("web/app.js", "application/javascript")
+            uri == "/help.html" -> serveAsset("web/help.html", "text/html")
             uri == "/video" -> serveMjpegStream()
             uri == "/api/cameras" -> serveCameraList()
             uri == "/api/camera/switch" -> serveCameraSwitch(session)
@@ -116,7 +117,8 @@ class CamWebServer(
             "rtsp_url" to "rtsp://$ip:${AppSettings.getRtspPort(context)}/live",
             "rtsp_enabled" to AppSettings.isRtspEnabled(context),
             "mjpg_url" to "http://$ip:$port",
-            "mjpg_enabled" to AppSettings.isMjpgEnabled(context)
+            "mjpg_enabled" to AppSettings.isMjpgEnabled(context),
+            "battery_level" to CameraService.batteryLevel
         )
 
         return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(status))

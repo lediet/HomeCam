@@ -426,6 +426,24 @@ class MainActivity : AppCompatActivity() {
             setPadding(40, 24, 40, 24)
         }
 
+        // Usage guide link (right-aligned, top of dialog)
+        container.addView(TextView(this).apply {
+            text = getString(R.string.dialog_manual)
+            textSize = 14f
+            paint.isUnderlineText = true
+            setTextColor(0xff4f46e5.toInt())
+            gravity = android.view.Gravity.END
+            setOnClickListener {
+                try {
+                    val intent = android.content.Intent(this@MainActivity, UserManualActivity::class.java)
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(this@MainActivity, "无法打开帮助页面", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+            setPadding(0, 0, 0, 12)
+        })
+
         // Open Source
         container.addView(TextView(this).apply {
             text = getString(R.string.dialog_open_source)

@@ -50,6 +50,11 @@
             android:label="视频相册"
             android:parentActivityName=".ui.MainActivity" />
 
+        <activity
+            android:name=".ui.UserManualActivity"
+            android:label="@string/manual_title"
+            android:parentActivityName=".ui.MainActivity" />
+
         <service
             android:name=".service.CameraService"
             android:foregroundServiceType="camera"
