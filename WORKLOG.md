@@ -1599,3 +1599,127 @@ implementation("androidx.camera:camera-core:$cameraxVersion")
 
 *文档结束 — HomeCam v1.6.2 工作记录*
 
+---
+
+### v1.7.0 (2026-05-26) — 关于对话框 + ProGuard 修复 + 默认配置优化
+
+#### 新增
+
+1. **关于对话框** — 主界面右上角 `ⓘ` 按钮弹出关于信息
+   - 开源说明（完全开源、永久免费、无广告、本地运行）
+   - 自愿打赏（赞赏码 QR 码，从 `assets/QR/QR.jpg` 加载）
+   - GitHub 源码地址（可点击链接跳转）
+   - 交流反馈说明
+   - 免责声明
+   - 右上角 "📖 使用说明" 链接（预留，v1.7.1 接入 WebView）
+
+2. **ProGuard/R8 规则完善** — 修复 Release 构建崩溃问题
+   - 添加 `-dontoptimize` 禁用 R8 优化，防止 JNI/反射问题
+   - 添加 MediaPipe 全系列 Keep 规则（tasks-vision、framework、proto）
+   - 添加 TensorFlow Lite Keep 规则（task-audio、support-audio）
+   - 添加 Protobuf、NanoHTTPD、Room、Gson 序列化 Keep 规则
+   - 添加 R8 missing class 警告抑制
+
+#### 变更
+
+1. **默认配置优化**
+   - 缩放系数默认值：`0.75` → `1.0`（保留原始分辨率）
+   - RTSP 流媒体默认关闭：`true` → `false`（降低首次使用复杂度）
+   - 录像策略默认值：`motion` → `event`（仅非运动事件触发录像）
+
+#### 清理
+
+- 移除 `.idea/` IDE 配置、`local.properties`、`.claude/settings.local.json`
+- 移除 `tmp_fix_audio.py` 临时脚本
+
+#### 修复
+
+- 竖屏模式下跌倒检测的躯干角度计算适配（landscape orientation 判断）
+
+#### 技术调整
+
+- 版本号：versionCode = 9, versionName = "1.7.0"
+- `app/proguard-rules.pro`：从 4 行扩展到 65 行完整规则
+- `service/AppSettings.kt`：修改默认值（scale_factor/rtsp_enabled/recording_strategy）
+- `ui/MainActivity.kt`：新增 `showAboutDialog()` 方法
+- `res/values/strings.xml`：新增 10 个关于对话框字符串
+
+---
+
+### v1.7.1 (2026-06-04) — 双通道睡眠检测 + 电量检测 + 用户手册 + 跌倒检测增强
+
+#### 新增
+
+1. **Pose 辅助双通道睡眠检测** — FaceLandmarker 面部不可见时，通过 Pose Landmarker 躯干姿态判断睡眠
+   - `faceNotVisibleFrames` 计数器：面部连续不可见帧计数
+   - 触发表情：躯干水平（角度 > 50°）+ 面部不可见 > 30 帧（~2 秒）+ 持续 > 30 秒 → 触发 `sleep`
+   - 唤醒检测：睡眠状态中躯干恢复直立 → 触发 `wake_up`
+   - 睡眠状态下自动跳过跌倒检测，避免误报
+   - `onPoseLandmarkResult()` 重构：提取 `computeTorsoAngle()` 公共方法
+
+2. **电池电量检测** — 服务启动后定期读取设备电量
+   - 通过 `BatteryManager` + `ACTION_BATTERY_CHANGED` 广播获取电量百分比
+   - 每 60 秒轮询更新（首次延迟 10 秒避免启动阻塞）
+   - `CameraService.batteryLevel` 静态字段供外部读取
+   - 服务销毁时移除轮询回调
+
+3. **Web 前端电量显示** — 直播页顶部状态栏显示手机剩余电量
+   - 绿色：> 30%；橙色：15-30%；红色脉冲动画：≤ 15%
+   - 每 5 秒状态轮询同步电量数据（`/api/status` 增加 `battery_level` 字段）
+
+4. **用户手册** — 完整的使用说明文档
+   - `docs/user_manual.md`：Markdown 格式，涵盖全部功能模块和配置项
+   - `docs/user_manual.html`：自包含 HTML 格式（含内联 CSS），带图片占位
+   - `app/src/main/assets/web/help.html`：HTML 拷贝，可通过 WebView 和 Web 服务器访问
+   - 新增 `UserManualActivity.kt`：全屏 WebView + MaterialToolbar 返回按钮
+   - 新增 `activity_manual.xml`：Toolbar + WebView 布局
+   - 新增 `ic_help.xml` 矢量图标
+   - AndroidManifest 注册 UserManualActivity（parentActivityName 指向 MainActivity）
+   - 关于对话框 "📖 使用说明" 链接 → 启动 UserManualActivity 显示帮助页
+   - CamWebServer 新增 `/help.html` 路由
+
+5. **TE 终端整合** — 显示终端 HomeCam-TE 项目信息
+   - 文档 `docs/user_manual.md` / `.html` 中新增 TE 章节
+   - 资源图片（`homecam-TE_card.png`、`homecam_main.png`、`homecam_web_main.png`、`homecam_web_his.png`）
+
+6. **协议文档** — `temp/battery_protocol.md` 电池电量获取协议说明
+
+#### 修复
+
+1. **跌倒检测局部肢体误报** — 当画面中只有胳膊/部分肢体时，Pose Landmarker 返回的 33 个关键点中肩部和髋部为不可靠估值，导致躯干角度震荡误判为跌倒
+   - 边界框面积过滤：边界框 < 图像面积 3% 时跳过跌倒检测
+   - 边界框高度过滤：边界框高度 < 图像高度 15% 时跳过检测
+   - 躯干长度校验：归一化坐标中肩髋距 < 0.08 时躯干不可靠，跳过
+   - Log.d 输出面积/高度百分比，便于调试阈值
+
+2. **initDetectors ANR** — MediaPipe 模型加载较慢（~1-2 秒），在 `onStartCommand()` 主线程调用导致 ANR
+   - 改为 `detectExecutor.submit {}` 后台线程初始化 AI 检测器
+
+#### 变更
+
+- 初始化 Pose Landmarker 条件：跌倒检测 或 睡眠检测 开启时均初始化（此前仅跌倒检测需要）
+
+#### 技术调整
+
+- 版本号：versionCode = 9, versionName = "1.7.1"
+- `app/build.gradle.kts`：versionName "1.6.2" → "1.7.1"
+- `detection/EventDetector.kt`：
+  - 重构 `onPoseLandmarkResult()` → 提取 `computeTorsoAngle()` + `analyzePoseForSleep()`
+  - 新增 `faceNotVisibleFrames` / `FACE_NOT_VISIBLE_THRESHOLD` / `lastTorsoHorizontalTime` / `TORSO_HORIZONTAL_SLEEP_TIMEOUT`
+  - `onFaceLandmarkResult()` 面部不可见时递增计数器而非直接返回
+  - 跌倒检测入口增加边界框大小双重过滤 + 躯干长度校验
+  - 睡眠状态中跳过跌倒检测
+- `service/CameraService.kt`：
+  - 新增 `batteryLevel` 静态字段、`getBatteryLevel()` 方法、`batteryHandler` + `batteryUpdateRunnable`
+  - `initDetectors()` 延迟 10 秒后开始电量轮询
+  - `onDestroy()` 移除电量轮询回调
+  - `onStartCommand()` 中 `initDetectors()` 移入 `detectExecutor` 后台线程
+- `service/AppSettings.kt`：`isSleepDetectionEnabled()` 作为 Pose Landmarker 初始化条件
+- `web/CamWebServer.kt`：新增 `/help.html` 路由；`/api/status` 增加 `battery_level`
+- `ui/MainActivity.kt`：关于对话框 "📖 使用说明" 通过 Intent 启动 UserManualActivity
+- `ui/UserManualActivity.kt`：新建，加载 `assets/web/help.html` 全屏显示
+- `res/layout/activity_manual.xml`：新建
+- `AndroidManifest.xml`：注册 UserManualActivity
+- `res/values/strings.xml`：新增 `dialog_manual` / `manual_title` 等
+- `assets/web/app.js` / `index.html` / `style.css`：电量指示器 UI 和状态同步
+
