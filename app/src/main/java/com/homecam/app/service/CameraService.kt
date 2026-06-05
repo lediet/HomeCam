@@ -112,6 +112,11 @@ class CameraService : LifecycleService() {
     private var camera2LogicalId: String? = null
     private val camera2PendingFrames = java.util.concurrent.atomic.AtomicInteger(0)
 
+    // Camera characteristics cache (queried once, values never change during service lifetime)
+    private var cachedCameraChecked = false
+    private var cachedFacing = CameraCharacteristics.LENS_FACING_BACK
+    private var cachedRotation = 0
+
     @Volatile
     private var isRecordingEvent = false
     private val postEventFrames = mutableListOf<Pair<Long, ByteArray>>()
@@ -508,13 +513,18 @@ class CameraService : LifecycleService() {
             val bitmap = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
             val croppedBitmap = bitmap
 
-            // Apply sensor rotation
-            val manager = getSystemService(android.content.Context.CAMERA_SERVICE) as CameraManager
-            val facing = try {
-                manager.getCameraCharacteristics(camera2LogicalId ?: "0")
-                    .get(CameraCharacteristics.LENS_FACING) ?: CameraCharacteristics.LENS_FACING_BACK
-            } catch (e: Exception) { CameraCharacteristics.LENS_FACING_BACK }
-            val rotation = getSensorOrientation(manager, camera2LogicalId ?: "0", facing)
+            // Apply sensor rotation (cache camera characteristics — they never change during service lifetime)
+            if (!cachedCameraChecked) {
+                cachedCameraChecked = true
+                try {
+                    val mgr = getSystemService(android.content.Context.CAMERA_SERVICE) as CameraManager
+                    val chars = mgr.getCameraCharacteristics(camera2LogicalId ?: "0")
+                    cachedFacing = chars.get(CameraCharacteristics.LENS_FACING) ?: CameraCharacteristics.LENS_FACING_BACK
+                    cachedRotation = getSensorOrientation(mgr, camera2LogicalId ?: "0", cachedFacing)
+                } catch (_: Exception) { }
+            }
+            val facing = cachedFacing
+            val rotation = cachedRotation
             val rotatedBitmap = if (rotation != 0 || facing == CameraCharacteristics.LENS_FACING_FRONT) {
                 val matrix = Matrix().apply {
                     postRotate(rotation.toFloat())
@@ -564,9 +574,11 @@ class CameraService : LifecycleService() {
                 }
             }
 
-            // Feed to H.264 encoder for RTSP streaming
-            ensureEncoder(scaledBitmap.width, scaledBitmap.height)
-            h264Encoder?.feedFrame(scaledBitmap, timestamp)
+            // Feed to H.264 encoder for RTSP streaming (only when RTSP is enabled)
+            if (AppSettings.isRtspEnabled(this)) {
+                ensureEncoder(scaledBitmap.width, scaledBitmap.height)
+                h264Encoder?.feedFrame(scaledBitmap, timestamp)
+            }
 
             val jpegData = compressToJpeg(scaledBitmap, currentJpegQuality)
             if (AppSettings.isMjpgEnabled(this)) streamer.pushFrame(jpegData)
@@ -645,9 +657,11 @@ class CameraService : LifecycleService() {
             eventDetector.applyDetectionOverlay(scaledBitmap)
             latestDetectionMs = eventDetector.lastDetectionMs
 
-            // Feed to H.264 encoder for RTSP streaming
-            ensureEncoder(scaledBitmap.width, scaledBitmap.height)
-            h264Encoder?.feedFrame(scaledBitmap, timestamp)
+            // Feed to H.264 encoder for RTSP streaming (only when RTSP is enabled)
+            if (AppSettings.isRtspEnabled(this)) {
+                ensureEncoder(scaledBitmap.width, scaledBitmap.height)
+                h264Encoder?.feedFrame(scaledBitmap, timestamp)
+            }
 
             val jpegData = compressToJpeg(scaledBitmap, currentJpegQuality)
 

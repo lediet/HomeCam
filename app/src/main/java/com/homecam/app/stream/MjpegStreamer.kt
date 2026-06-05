@@ -38,16 +38,20 @@ class MjpegStreamer {
 
         val packet = header.toByteArray() + jpegData + crlf.toByteArray()
 
-        val toRemove = mutableListOf<OutputStream>()
-        clients.forEach { client ->
-            try {
-                client.write(packet)
-                client.flush()
-            } catch (e: Exception) {
-                toRemove.add(client)
+        // clients list is currently unused (Web MJPEG goes through frameListeners).
+        // Skip when empty to avoid unnecessary GC allocations.
+        if (clients.isNotEmpty()) {
+            val toRemove = mutableListOf<OutputStream>()
+            clients.forEach { client ->
+                try {
+                    client.write(packet)
+                    client.flush()
+                } catch (e: Exception) {
+                    toRemove.add(client)
+                }
             }
+            clients.removeAll(toRemove)
         }
-        clients.removeAll(toRemove)
 
         frameListeners.forEach { listener ->
             try {
