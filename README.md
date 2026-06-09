@@ -6,7 +6,7 @@ HomeCam 是一款将闲置 Android 手机转化为局域网监控摄像头的应
 
 可以通过WEB端进行视频流查看，或通过配套的软件[Homecam-TE](https://github.com/lediet/HomeCam-TE)实现多台摄像头的视频流组播查看。
 
-软件说明书见 [用户使用手册](docs/user_manual.html)。
+软件说明书见 [用户使用手册](https://htmlpreview.github.io/?https://github.com/lediet/HomeCam/blob/main/docs/user_manual.html)。
 
 ## 功能特性
 
