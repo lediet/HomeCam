@@ -21,3 +21,7 @@ Thumbs.db
 temp/
 tmp_fix_audio.py
 *.log
+
+# APK
+*.apk
+*.aab
