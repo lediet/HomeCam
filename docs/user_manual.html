@@ -170,8 +170,6 @@
     margin-bottom: 4px;
   }
   .card p {
-    font-size: .82rem;
-    color: var(--text-dim);
     margin: 0;
   }
 
@@ -450,10 +448,7 @@
 <div class="section" id="start">
   <h2><span class="num">2</span> 安装与启动</h2>
 
-  <div class="img-placeholder">
-    <img src="homecam_main.png" alt="HomeCam 主界面" style="background:#f1f5f9;min-height:200px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);" onerror="this.style.display='none'">
-    <div class="caption">图：HomeCam 主界面 — 启动服务、切换摄像头、查看状态</div>
-  </div>
+
 
   <h3>HomeCam 服务器端</h3>
   <ol class="step-list">
@@ -512,8 +507,8 @@
   </ul>
 
   <div class="img-placeholder">
-    <img src="homecam_web_main.png" alt="Web 端界面截图" style="background:#f1f5f9;min-height:200px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);" onerror="this.style.display='none'">
-    <div class="caption">图：Web 端界面 — 实时画面、摄像头切换、电源控制、事件日志</div>
+    <img src="homecam_main.png" alt="HomeCam 主界面" style="background:#f1f5f9;min-height:200px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);" onerror="this.style.display='none'">
+    <div class="caption">图：HomeCam 主界面 — 启动服务、切换摄像头、查看状态</div>
   </div>
 
   <h3>3.2 Web 端界面</h3>
@@ -541,6 +536,11 @@
     <li>每 15 秒自动刷新列表</li>
   </ul>
 </div>
+
+  <div class="img-placeholder">
+    <img src="homecam_web_main.png" alt="Web 端界面截图" style="background:#f1f5f9;min-height:200px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);" onerror="this.style.display='none'">
+    <div class="caption">图：Web 端界面 — 实时画面、摄像头切换、电源控制、事件日志</div>
+  </div>
 
 <!-- =============== 4 =============== -->
 <div class="section" id="te">
@@ -598,7 +598,7 @@
 
   <h3>4.4 事件监控与报警</h3>
   <p><strong>事件同步</strong>：每 5 秒轮询 <code>/api/events</code>，增量更新（时间戳比较），内存保留最近 20 条。</p>
-  <p><strong>语音报警（TTS）</strong>：使用 Android TTS API，中文播报事件类型。</p>
+  <p><strong>语音报警</strong>：手机铃声通知。</p>
   <p><strong>振动报警</strong>：不同事件不同振动时长。</p>
 
   <div class="table-wrap">
@@ -644,7 +644,7 @@
         <tr><td>报警总开关</td><td>开启/关闭所有报警</td></tr>
         <tr><td>按事件类型开关</td><td>分别控制 6 类事件的报警</td></tr>
         <tr><td>振动开关</td><td>独立控制振动报警</td></tr>
-        <tr><td>语音开关</td><td>独立控制 TTS 语音播报</td></tr>
+        <tr><td>语音开关</td><td>独立控制铃声通知</td></tr>
       </tbody>
     </table>
   </div>
@@ -891,10 +891,10 @@
   <div class="card" style="margin-bottom:12px">
     <h4>画面卡顿 / 延迟大？</h4>
     <ul>
+      <li>使用 5G Wi-Fi 而非 2.4G</li>
+      <li>关闭不必要的 AI 检测功能</li>
       <li>降低分辨率缩放到 0.75 或 0.5</li>
       <li>降低帧率到 15 FPS</li>
-      <li>关闭不必要的 AI 检测功能</li>
-      <li>使用 5G Wi-Fi 而非 2.4G</li>
     </ul>
   </div>
 
