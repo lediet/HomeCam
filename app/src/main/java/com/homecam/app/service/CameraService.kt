@@ -473,6 +473,8 @@ class CameraService : LifecycleService() {
         try { camera2Reader?.close() } catch (_: Exception) {}
         camera2Reader = null
         camera2LogicalId = null
+        // Reset camera characteristics cache — will be re-queried on next frame
+        cachedCameraChecked = false
     }
 
     private fun getSensorOrientation(manager: CameraManager, cameraId: String, facing: Int): Int {
