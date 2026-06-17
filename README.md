@@ -2,7 +2,7 @@
 
 [![Min SDK](https://img.shields.io/badge/minSdk-26-brightgreen)](https://developer.android.com/about/versions/oreo) [![Target SDK](https://img.shields.io/badge/targetSdk-34-blue)](https://developer.android.com/about/versions/14) [![Kotlin](https://img.shields.io/badge/language-Kotlin-purple)](https://kotlinlang.org/) [![License](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
 
-HomeCam 是一款将闲置 Android 手机转化为局域网监控摄像头的应用。它利用 Camera2 采集视频，通过 MJPEG/RTSP 实时推流，并内置 AI 事件检测（人物移动/跌倒/玩手机/哭声/睡眠检测），支持事件触发自动录像回放。 
+HomeCam 是一款将闲置的 Android 手机转化为局域网监控摄像头的应用。它利用 Camera2 采集视频，通过 MJPEG/RTSP 实时推流，并内置 AI 事件检测（人物移动/跌倒/玩手机/哭声/睡眠检测），支持事件触发自动录像回放。 
 
 可以通过WEB端进行视频流查看，或通过配套的软件[Homecam-TE](https://github.com/lediet/HomeCam-TE)实现多台摄像头的视频流组播查看。
 
