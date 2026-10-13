@@ -28,11 +28,15 @@ class RtspServer {
     companion object {
         private const val TAG = "RtspServer"
         private const val RTSP_VERSION = "RTSP/1.0"
-        private const val SERVER_NAME = "HomeCam/1.6.0"
+        private const val SERVER_NAME = "HomeCam/1.7.4"
         private const val CRLF = "\r\n"
 
         // Session timeout: auto-cleanup idle sessions after 60s
         private const val SESSION_TIMEOUT_MS = 60_000L
+
+        // Force-close a session after this many consecutive RTP send failures
+        // (client killed without TEARDOWN — socket stays broken on every send)
+        private const val MAX_CONSECUTIVE_SEND_ERRORS = 3
 
         // RTP constants
         private const val RTP_CLOCK_HZ = 90000L
@@ -62,6 +66,20 @@ class RtspServer {
 
     // Frame count for RTP timestamp calculation
     private var frameCount = 0L
+
+    // ---- Diagnostics counters (exposed via /api/diag/encoder) ----
+    @Volatile var nalusFedFromEncoder: Long = 0; private set
+    @Volatile var rtpPacketsSent: Long = 0; private set
+    @Volatile var rtpBytesSent: Long = 0; private set
+    @Volatile var sendErrors: Long = 0; private set
+    @Volatile var lastSendError: String = ""; private set
+    @Volatile var lastRtpSentAtMs: Long = 0; private set
+
+    fun playingSessionCount(): Int = synchronized(sessionsLock) {
+        sessions.count { it.isPlaying() }
+    }
+
+    fun totalSessionCount(): Int = synchronized(sessionsLock) { sessions.size }
 
     // Pending event SEI NAL to inject on next feedH264Nalu call
     @Volatile
@@ -126,6 +144,7 @@ class RtspServer {
 
         if (playingSessions.isEmpty()) return
 
+        nalusFedFromEncoder += nalUnits.size
         frameCount++
         // RTP timestamp: 90000 Hz clock
         val rtpTimestamp = ((timestampUs * RTP_CLOCK_HZ) / 1_000_000L) and 0xFFFFFFFFL
@@ -221,6 +240,10 @@ class RtspServer {
                         }
                         tcpOut.flush()
                         session.updateActivity()
+                        session.consecutiveSendErrors = 0
+                        rtpPacketsSent += result.packets.size
+                        rtpBytesSent += totalBytes
+                        lastRtpSentAtMs = System.currentTimeMillis()
 
                         if (frameCount <= 10) {
                             Log.d(TAG, "RTP interleaved: ${result.packets.size} pkt(s), $totalBytes bytes " +
@@ -244,6 +267,10 @@ class RtspServer {
                             totalBytes += pkt.length
                         }
                         session.updateActivity()
+                        session.consecutiveSendErrors = 0
+                        rtpPacketsSent += result.packets.size
+                        rtpBytesSent += totalBytes
+                        lastRtpSentAtMs = System.currentTimeMillis()
 
                         if (frameCount <= 10) {
                             Log.d(TAG, "RTP sent: ${result.packets.size} pkt(s), $totalBytes bytes " +
@@ -251,6 +278,15 @@ class RtspServer {
                         }
                     }
                 } catch (e: Exception) {
+                    sendErrors++
+                    lastSendError = "${e.javaClass.simpleName}: ${e.message}"
+                    session.consecutiveSendErrors++
+                    // Hard-broken client (killed without TEARDOWN): stop feeding it
+                    if (session.consecutiveSendErrors >= MAX_CONSECUTIVE_SEND_ERRORS) {
+                        Log.w(TAG, "Session ${session.sessionId.take(8)} failed ${session.consecutiveSendErrors} consecutive sends -> force close")
+                        synchronized(sessionsLock) { sessions.remove(session) }
+                        session.close()
+                    }
                     Log.w(TAG, "RTP send error to ${session.clientAddress}:${session.clientRtpPort}", e)
                 }
             }
@@ -328,16 +364,24 @@ class RtspServer {
     )
 
     private fun handleClient(clientSocket: Socket) {
+        var session: RtspSession? = null
         try {
             clientSocket.soTimeout = 30_000  // 30s read timeout
 
             val reader = BufferedReader(InputStreamReader(clientSocket.getInputStream(), Charsets.UTF_8))
             val writer = OutputStreamWriter(clientSocket.getOutputStream(), Charsets.UTF_8)
 
-            var session: RtspSession? = null
-
             while (isRunning && !clientSocket.isClosed) {
-                val request = parseRequest(reader) ?: break
+                val request = try {
+                    parseRequest(reader)
+                } catch (e: SocketTimeoutException) {
+                    // During PLAY most clients send no further RTSP requests.
+                    // Keep the session alive instead of dropping it after soTimeout.
+                    if (session?.isPlaying() == true) {
+                        session.updateActivity()
+                        continue
+                    } else null
+                } ?: break
 
                 Log.d(TAG, "RTSP ${request.method} ${request.url}")
 
@@ -391,6 +435,14 @@ class RtspServer {
         } catch (e: Exception) {
             Log.w(TAG, "RTSP client handler error", e)
         } finally {
+            // The control connection ended (clean TEARDOWN or client vanished).
+            // Remove the session here — otherwise a PLAYING session leaks and
+            // the RTP loop keeps sending to a dead socket forever.
+            session?.let { s ->
+                synchronized(sessionsLock) { sessions.remove(s) }
+                s.close()
+                Log.i(TAG, "Session ${s.sessionId.take(8)} removed (control connection ended)")
+            }
             try { clientSocket.close() } catch (_: Exception) {}
         }
     }
@@ -584,7 +636,7 @@ class RtspServer {
             appendLine("v=0")
             appendLine("o=- ${session.sessionId} 0 IN IP4 $localIp")
             appendLine("s=HomeCam Live Stream")
-            appendLine("c=IN IP4 0.0.0.0")
+            appendLine("c=IN IP4 $localIp")
             appendLine("t=0 0")
             appendLine("a=control:*")
             append("m=video 0 RTP/AVP 96")

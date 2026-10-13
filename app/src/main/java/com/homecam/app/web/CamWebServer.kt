@@ -59,6 +59,7 @@ class CamWebServer(
             uri == "/api/frame.jpg" -> serveFrameJpeg()
             uri.startsWith("/api/thumbnails/") -> serveThumbnail(uri)
             uri == "/api/diag/dump" -> serveDiagDump(session)
+            uri == "/api/diag/encoder" -> serveDiagEncoder()
             else -> newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Not Found")
         }
     }
@@ -282,6 +283,53 @@ class CamWebServer(
                     gson.toJson(mapOf("error" to "action must be 'start' or 'stop'")))
             }
         }
+    }
+
+    /**
+     * Diagnostic: full RTSP pipeline counters, one HTTP GET.
+     *   GET /api/diag/encoder
+     * Interpretation:
+     *   frames_fed rising + output_buffers stuck  -> encoder silently stalled (watchdog should cycle configs)
+     *   nalus_emitted rising + nalus_to_rtsp stuck -> encoder callback wiring broken
+     *   nalus_to_rtsp rising + playing_sessions=0  -> no client ever reached PLAYING state
+     *   all rising + rtp_packets_sent stuck        -> packetizer/send path broken
+     */
+    private fun serveDiagEncoder(): Response {
+        val service = ServiceManager.instance
+            ?: return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, "application/json",
+                gson.toJson(mapOf("error" to "Service not running")))
+
+        val encoder = service.h264Encoder
+        val rtsp = service.rtspServer
+        val now = System.currentTimeMillis()
+
+        val map = linkedMapOf<String, Any?>(
+            "encoder_running" to (encoder?.isRunning() ?: false),
+            "encoder_attempt_index" to encoder?.currentAttemptIndex,
+            "encoder_restarts" to encoder?.encoderRestarts,
+            "frames_fed" to encoder?.framesFed,
+            "input_starved_drops" to encoder?.inputStarvedDrops,
+            "output_buffers" to encoder?.outputBuffers,
+            "nalus_emitted" to encoder?.nalusEmitted,
+            "feed_errors" to encoder?.feedErrors,
+            "last_feed_error" to encoder?.lastFeedError,
+            "csd_ready" to encoder?.csdReady,
+            "sps_bytes" to encoder?.csdSps?.size,
+            "pps_bytes" to encoder?.csdPps?.size,
+            "last_fed_ago_ms" to encoder?.lastFedAtMs?.let { if (it > 0) now - it else -1 },
+            "last_output_ago_ms" to encoder?.lastOutputAtMs?.let { if (it > 0) now - it else -1 },
+            "rtsp_server_running" to (rtsp?.isActive() ?: false),
+            "rtsp_sessions_total" to rtsp?.totalSessionCount(),
+            "rtsp_sessions_playing" to rtsp?.playingSessionCount(),
+            "nalus_to_rtsp" to rtsp?.nalusFedFromEncoder,
+            "rtp_packets_sent" to rtsp?.rtpPacketsSent,
+            "rtp_bytes_sent" to rtsp?.rtpBytesSent,
+            "send_errors" to rtsp?.sendErrors,
+            "last_send_error" to rtsp?.lastSendError,
+            "last_rtp_sent_ago_ms" to rtsp?.lastRtpSentAtMs?.let { if (it > 0) now - it else -1 },
+            "dump_active" to (encoder?.isDumping() ?: false)
+        )
+        return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(map))
     }
 
     private fun serveCameraList(): Response {
